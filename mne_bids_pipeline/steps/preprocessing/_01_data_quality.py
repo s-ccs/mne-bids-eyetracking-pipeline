@@ -29,6 +29,7 @@ from mne_bids_pipeline._report import _add_raw, _open_report
 from mne_bids_pipeline._run import _prep_out_files, failsafe_run, save_logs
 from mne_bids_pipeline._viz import plot_auto_scores
 from mne_bids_pipeline.typing import FloatArrayT, InFilesT, OutFilesT
+from pyprep import NoisyChannels
 
 
 def get_input_fnames_data_quality(
@@ -141,7 +142,19 @@ def assess_data_quality(
         session=session,
         subject=subject,
     )
-    _write_json(out_files["auto_scores"], auto_scores)
+    
+    _write_json(out_files["auto_scores"], auto_scores)  
+
+    # find bad channels with pyprep
+    if cfg.pyprep_bad_chans:
+        pyprep_bads = _find_bads_pyprep(cfg=cfg,
+            exec_params=exec_params,
+            raw=raw,
+            subject=subject,
+            session=session,
+            run=run,
+            task=task,
+        )
 
     # Write the bad channels to disk.
     out_files["bads_tsv"] = _bads_path(
@@ -172,6 +185,17 @@ def assess_data_quality(
             )
             bads_for_tsv.append(ch)
             reasons.append(reason)
+
+    if cfg.pyprep_bad_chans:
+        for k, v in pyprep_bads.items():
+            for ch in v:
+                reason = (
+                f"pre-existing (before MNE-BIDS-pipeline was run) & pyprep {k}"
+                if ch in preexisting_bads
+                else f"pyrep {k}"
+            )
+                bads_for_tsv.append(ch)
+                reasons.append(reason)
 
     if preexisting_bads:
         for ch in preexisting_bads:
@@ -228,6 +252,22 @@ def assess_data_quality(
                 plt.close(fig)
         else:
             report.remove(title=title)
+        if cfg.pyprep_bad_chans:
+            raw.set_annotations(None) # annotations only bother us here
+            msg = "Adding pyprep bad channels to report"
+            logger.info(**gen_log_kwargs(message=msg))
+            for k, v in pyprep_bads.items():
+                raw.info["bads"] = v
+                if not v or k == "all_bads":
+                    continue
+                _add_raw(
+                    cfg=cfg,
+                    report=report,
+                    bids_path_in=bids_path_in,
+                    title=f"Raw, algorithm {k}",
+                    tags=("bad_channel",),
+                    raw=raw,
+                )
 
     assert len(in_files) == 0, in_files.keys()
     return _prep_out_files(exec_params=exec_params, out_files=out_files)
@@ -306,6 +346,52 @@ def _find_bads_maxwell(
 
     return auto_noisy_chs, auto_flat_chs, auto_scores
 
+def _find_bads_pyprep(
+    *,
+    cfg: SimpleNamespace,
+    exec_params: SimpleNamespace,
+    raw: mne.io.BaseRaw,
+    subject: str,
+    session: str | None,
+    run: str | None,
+    task: str | None,
+) -> tuple[list[str], list[str], dict[str, FloatArrayT]]:
+    msg = "Finding noisy channels with PyPREP."
+    logger.info(**gen_log_kwargs(message=msg))
+    noisy_chans = NoisyChannels(raw)
+    if cfg.pyprep_all_bads:
+        msg = "Running pyprep all bads"
+        logger.info(**gen_log_kwargs(message=msg))
+        noisy_chans.find_all_bads(**cfg.pyprep_all_bads_params)
+    else:
+        if cfg.pyprep_by_SNR:
+            msg = "Running pyprep SNR"
+            logger.info(**gen_log_kwargs(message=msg))
+            noisy_chans.find_bad_by_SNR()
+        if cfg.pyprep_by_correlation:
+            msg = "Running pyprep correlation"
+            logger.info(**gen_log_kwargs(message=msg))
+            noisy_chans.find_bad_by_correlation(**cfg.pyprep_by_correlation_params)
+        if cfg.pyprep_by_deviation:
+            msg = "Running pyprep deviation"
+            logger.info(**gen_log_kwargs(message=msg))
+            noisy_chans.find_bad_by_deviation(**cfg.pyprep_by_deviation_params)
+        if cfg.pyprep_by_hfnoise:
+            msg = "Running pyprep hfnoise"
+            logger.info(**gen_log_kwargs(message=msg))
+            noisy_chans.find_bad_by_hfnoise(**cfg.pyprep_by_hfnoise_params)
+        if cfg.pyprep_by_nan_flat:
+            msg = "Running pyprep nanflat"
+            logger.info(**gen_log_kwargs(message=msg))
+            noisy_chans.find_bad_by_nanflat(**cfg.pyprep_by_nanflat_params)
+        if cfg.pyprep_by_ransac:
+            msg = "Running pyprep ransac"
+            logger.info(**gen_log_kwargs(message=msg))
+            noisy_chans.find_bad_by_ransac(**cfg.pyprep_by_ransac_params)
+
+    bads = noisy_chans.get_bads(as_dict=True)
+    return bads
+
 
 def get_config(
     *,
@@ -332,6 +418,20 @@ def get_config(
         # detection
         # find_flat_channels_meg=config.find_flat_channels_meg,
         # find_noisy_channels_meg=config.find_noisy_channels_meg,
+        pyprep_bad_chans=config.pyprep_bad_chans,
+        pyprep_all_bads=config.pyprep_all_bads,
+        pyprep_all_bads_params=config.pyprep_all_bads_params,
+        pyprep_by_SNR=config.pyprep_by_SNR,
+        pyprep_by_correlation=config.pyprep_by_correlation,
+        pyprep_by_correlation_params=config.pyprep_by_correlation_params,
+        pyprep_by_deviation=config.pyprep_by_deviation,
+        pyprep_by_deviation_params=config.pyprep_by_deviation_params,
+        pyprep_by_hfnoise=config.pyprep_by_hfnoise,
+        pyprep_by_hfnoise_params=config.pyprep_by_hfnoise_params,
+        pyprep_by_nan_flat=config.pyprep_by_nan_flat,
+        pyprep_by_nan_flat_params=config.pyprep_by_nan_flat_params,
+        pyprep_by_ransac=config.pyprep_by_ransac,
+        pyprep_by_ransac_params=config.pyprep_by_ransac_params,
         **_import_data_kwargs(config=config, subject=subject),
         **extra_kwargs,
     )
