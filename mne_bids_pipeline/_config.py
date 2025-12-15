@@ -1245,6 +1245,10 @@ Regular expression used for searching for calibration events
 
 
 ### Bad channel detection with PyPREP
+
+# for parameter documentation see:
+# https://pyprep.readthedocs.io/en/latest/generated/pyprep.NoisyChannels.html#pyprep.NoisyChannels
+
 # run bad channel detection
 pyprep_bad_chans: bool = False
 ## variables which determine which algos to run
