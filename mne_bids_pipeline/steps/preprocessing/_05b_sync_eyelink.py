@@ -13,6 +13,7 @@ from ..._config_utils import (
     get_runs,
     get_sessions,
     get_subjects,
+    _get_ss,
 )
 from ..._import_data import annotations_to_events, make_epochs
 from ..._logging import gen_log_kwargs, logger
@@ -56,8 +57,7 @@ def _mark_calibration_as_bad(raw, cfg):
         elif calib_status == last_status:
             logger.info(**gen_log_kwargs(message=f"Encountered apparent duplicate calibration event ({calib_status}, {calib_idx}) - skipping"))
         elif calib_status == "start" and cur_idx is not None:
-            raise ValueError(f"Annotation {annot["description"]} could not be assigned membership"
-                             f"")
+            raise ValueError(f"Annotation {annot['description']} could not be assigned membership")
         last_status = calib_status
         
     return raw
@@ -210,6 +210,7 @@ def sync_eyelink(
         et_sync_times = [annotation["onset"] for annotation in raw_et.annotations if re.search(cfg.sync_eventtype_regex_et,annotation["description"])]
         sync_times    = [annotation["onset"] for annotation in raw.annotations    if re.search(cfg.sync_eventtype_regex,   annotation["description"])]
         assert len(et_sync_times) == len(sync_times),f"Detected eyetracking and EEG sync events were not of equal size ({len(et_sync_times)} vs {len(sync_times)}). Adjust your regular expressions via 'sync_eventtype_regex_et' and 'sync_eventtype_regex' accordingly"
+        assert len(sync_times) > 1,f"Not enough distinct sync events for realignment ({len(sync_times)})" #else realign_raw fails its regression
         #logger.info(**gen_log_kwargs(message=f"{et_sync_times}"))
         #logger.info(**gen_log_kwargs(message=f"{sync_times}"))
 
@@ -236,13 +237,20 @@ def sync_eyelink(
         # first mark et sync event descriptions so we can differentiate them later
         # TODO: For now all ET events will be marked with ET and added to the EEG annotations, maybe later filter for certain events only
         raw_et.annotations.description = np.array(list(map(lambda desc: "ET_" + desc, raw_et.annotations.description)))
-        raw.set_annotations(mne.annotations._combine_annotations(raw.annotations,
-                                                                 raw_et.annotations,
-                                                                 0,
-                                                                 raw.first_samp,
-                                                                 raw_et.first_samp,
-                                                                 raw.info["sfreq"]))
 
+        shift = (raw.first_samp - raw_et.first_samp) / raw.info["sfreq"]
+
+        et_shifted = mne.Annotations(
+            onset=raw_et.annotations.onset + shift, # shift ET annotations to match EEG
+            orig_time=raw.annotations.orig_time, # match orig_time to raw EEG
+            duration=raw_et.annotations.duration,
+            description=raw_et.annotations.description,
+            ch_names=raw_et.annotations.ch_names,
+            extras=raw_et.annotations.extras
+        )
+
+        raw.set_annotations(raw.annotations + et_shifted)
+        
         msg = f"Saving synced data to disk."
         logger.info(**gen_log_kwargs(message=msg))
         raw.save(
@@ -449,7 +457,11 @@ def main(*, config: SimpleNamespace) -> None:
 
 
     with get_parallel_backend(config.exec_params):
-        parallel, run_func = parallel_func(sync_eyelink, exec_params=config.exec_params)
+        parallel, run_func = parallel_func(
+            sync_eyelink,
+            exec_params=config.exec_params,
+            n_iter=len(_get_ss(config=config)),
+        )
         logs = parallel(
             run_func(
                 cfg=get_config(config=config, subject=subject),
