@@ -286,6 +286,7 @@ def assess_data_quality(
                 plt.close(fig)
         else:
             report.remove(title=title)
+            report.add_html(text_html, **text_kwargs)
         if cfg.pyprep_bad_chans:
             raw.set_annotations(None) # annotations only bother us here
             msg = "Adding pyprep bad channels to report"
@@ -302,7 +303,6 @@ def assess_data_quality(
                     tags=("bad_channel",),
                     raw=raw,
                 )
-            report.add_html(text_html, **text_kwargs)
 
     assert len(in_files) == 0, in_files.keys()
     return _prep_out_files(exec_params=exec_params, out_files=out_files)
