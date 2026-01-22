@@ -241,19 +241,28 @@ def sync_eyelink(
     # first mark et sync event descriptions so we can differentiate them later
     # TODO: For now all ET events will be marked with ET and added to the EEG annotations, maybe later filter for certain events only
     raw_et.annotations.description = np.array(list(map(lambda desc: "ET_" + desc, raw_et.annotations.description)))
+    
+    
+    raw.set_annotations(mne.annotations._combine_annotations(raw.annotations,
+                                                                raw_et.annotations,
+                                                                0,
+                                                                raw.first_samp,
+                                                                raw_et.first_samp,
+                                                                raw.info["sfreq"]))
+    
+    # the following code requires mne 1.11 - but there is a bug in reading eyelink-asc files so we cant use it
+    #shift = (raw.first_samp - raw_et.first_samp) / raw.info["sfreq"]
 
-    shift = (raw.first_samp - raw_et.first_samp) / raw.info["sfreq"]
+    #et_shifted = mne.Annotations(
+    #    onset=raw_et.annotations.onset + shift, # shift ET annotations to match EEG
+    #    orig_time=raw.annotations.orig_time, # match orig_time to raw EEG
+    #    duration=raw_et.annotations.duration,
+    #    description=raw_et.annotations.description,
+    #    ch_names=raw_et.annotations.ch_names,
+    #    extras=raw_et.annotations.extras
+    #)
 
-    et_shifted = mne.Annotations(
-        onset=raw_et.annotations.onset + shift, # shift ET annotations to match EEG
-        orig_time=raw.annotations.orig_time, # match orig_time to raw EEG
-        duration=raw_et.annotations.duration,
-        description=raw_et.annotations.description,
-        ch_names=raw_et.annotations.ch_names,
-        extras=raw_et.annotations.extras
-    )
-
-    raw.set_annotations(raw.annotations + et_shifted)
+    #raw.set_annotations(raw.annotations + et_shifted)
     
     msg = f"Saving synced data to disk."
     logger.info(**gen_log_kwargs(message=msg))
