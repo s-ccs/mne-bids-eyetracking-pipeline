@@ -41,6 +41,7 @@ dependencies = [
   "annotated-types",
   "rich",
   "python-picard",
+  "pyprep",
   "qtpy",
   "pyvista",
   "pyvistaqt",
