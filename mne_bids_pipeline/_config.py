@@ -1320,6 +1320,43 @@ sync_calibration_string: str | None = ".* Recalibration (start|end) \\| (.*)"
 Regular expression used for searching for calibration events
 """
 
+
+### Bad channel detection with PyPREP
+
+# for parameter documentation see:
+# https://pyprep.readthedocs.io/en/latest/generated/pyprep.NoisyChannels.html#pyprep.NoisyChannels
+
+# run bad channel detection
+pyprep_bad_chans: bool = False
+## variables which determine which algos to run
+# run all available algos. if True
+pyprep_all_bads: bool = True
+# params for find_all_bads, defaults to empty dict, i.e. pyprep defaults
+pyprep_all_bads_params: dict = dict()
+# run snr algo
+pyprep_by_SNR: bool = False
+# run the correlation algo
+pyprep_by_correlation: bool = False
+# params for correlation, defaults to empty dict, i.e. pyprep defaults
+pyprep_by_correlation_params: dict = dict()
+# run the deviation algo
+pyprep_by_deviation: bool = False
+# params for deviation, defaults to empty dict, i.e. pyprep defaults
+pyprep_by_deviation_params: dict = dict()
+# run the hfnoise algo
+pyprep_by_hfnoise: bool = False
+# params for hfnoise, defaults to empty dict, i.e. pyprep defaults
+pyprep_by_hfnoise_params: dict = dict()
+# run the nan flat algo
+pyprep_by_nan_flat: bool = False
+# params for nan_flat, defaults to empty dict, i.e. pyprep defaults
+pyprep_by_nan_flat_params: dict = dict()
+# run the ransac algo
+pyprep_by_ransac: bool = False
+# params for ransac, defaults to empty dict, i.e. pyprep defaults
+pyprep_by_ransac_params: dict = dict()
+
+
 # ### SSP, ICA, and artifact regression
 
 regress_artifact: dict[str, Any] | None = None
