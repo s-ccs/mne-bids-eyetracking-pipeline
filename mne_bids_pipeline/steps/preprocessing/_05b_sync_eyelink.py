@@ -131,8 +131,8 @@ def get_input_fnames_sync_eyelink(
             et_bids_basename.update(suffix="et",extension=".edf")
 
             if not os.path.isfile(et_bids_basename):
-                et_bids_basename.update(suffix="physio")
                 logger.error(**gen_log_kwargs(message=f"Also didn't find {et_bids_basename} file, last try, edf with suffix _physio"))
+                et_bids_basename.update(suffix="physio")
                 if not os.path.isfile(et_bids_basename):
                     logger.error(**gen_log_kwargs(message=f"Also didn't find {et_bids_basename} file, one of both needs to exist for ET sync."))
                     raise FileNotFoundError(f"For run {run}, could neither find .asc or .edf eye-tracking file. Please double-check the file names.")
