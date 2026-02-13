@@ -300,7 +300,7 @@ def run_ica(
         max_iter=cfg.ica_max_iterations,
     )
     # TODO: This works for our pipeline (exclude eye-tracking data for ICA) but maybe not in general
-    ica.fit(picks=cfg.ch_types, decim=cfg.ica_decim)
+    ica.fit(epochs, picks=cfg.ch_types, decim=cfg.ica_decim)
     explained_var = (
         ica.pca_explained_variance_[: ica.n_components_].sum()
         / ica.pca_explained_variance_.sum()
