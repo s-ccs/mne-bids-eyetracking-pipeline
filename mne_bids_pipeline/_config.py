@@ -939,6 +939,14 @@ For full documatation of the bandpass filter:
 https://mne.tools/stable/generated/mne.filter.filter_data
 """
 
+ica_filter_extra_kws: dict[str, Any] = {}
+"""
+A dictionary of extra kwargs to pass to `mne.filter.filter` for the ICA. If kwargs
+are passed here that have dedicated config settings already, an error will be raised.
+For full documentation of the ICA filter:
+https://mne.tools/stable/generated/mne.filter.filter_data
+"""
+
 # ### Resampling
 #
 # If you have acquired data with a very high sampling frequency (e.g. 2 kHz)

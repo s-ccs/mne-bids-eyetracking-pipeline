@@ -154,7 +154,7 @@ def run_ica(
             del nyq
 
         if cfg.ica_l_freq is not None or h_freq is not None:
-            raw.filter(l_freq=cfg.ica_l_freq, h_freq=h_freq, n_jobs=1)
+            raw.filter(l_freq=cfg.ica_l_freq, h_freq=h_freq, n_jobs=1,**cfg.ica_filter_extra_kws)
 
         # Only keep the subset of the mapping that applies to the current run
         event_id = event_name_to_code_map.copy()
@@ -399,6 +399,7 @@ def get_config(
         rest_epochs_overlap=config.rest_epochs_overlap,
         processing="eyelink" if config.sync_eyelink else "filt" if config.regress_artifact is None else "regress",
         _epochs_split_size=config._epochs_split_size,
+        ica_filter_extra_kws = config.ica_filter_extra_kws,
         **_bids_kwargs(config=config),
     )
     return cfg
