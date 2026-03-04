@@ -1674,6 +1674,12 @@ it is to run but the less data you have to compute a good ICA. Set to
 `1` or `None` to not perform any decimation.
 """
 
+ica_remove_nan: bool = True
+"""
+Annotate all nan's and remove them for the ICA fit. 
+This is implemented via mne.annotate_nan, which adds BAD_NAN annotations.
+"""
+
 ica_use_ecg_detection: bool = True
 """
 Whether to use the MNE ECG detection on the ICA components.
