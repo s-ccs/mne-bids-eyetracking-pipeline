@@ -1674,9 +1674,9 @@ it is to run but the less data you have to compute a good ICA. Set to
 `1` or `None` to not perform any decimation.
 """
 
-ica_remove_nan: bool = True
+ica_skip_nan: bool = True
 """
-Annotate all nan's and remove them for the ICA fit. 
+Annotate all nan's and skip them for the ICA fit. 
 This is implemented via mne.annotate_nan, which adds BAD_NAN annotations.
 
 This setting also overwrites the `skip_by_annotation` key in `ica_filter_extra_kws` 

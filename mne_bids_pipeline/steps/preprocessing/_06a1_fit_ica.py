@@ -140,12 +140,12 @@ def run_ica(
             picks.remove("eeg")
         raw.pick(picks=picks).load_data()
 
-        nan_annotations = mne.preprocessing.annotate_nan(raw) if cfg.ica_remove_nan else None
+        nan_annotations = mne.preprocessing.annotate_nan(raw) if cfg.ica_skip_nan else None
         if nan_annotations is not None:
             logger.info(**gen_log_kwargs(message=f"Found {len(nan_annotations)} NaN segments in the data. These will be annotated as BAD_NAN and ignored for ICA fitting."))
             raw.set_annotations(raw.annotations + nan_annotations)
 
-        if cfg.ica_remove_nan:
+        if cfg.ica_skip_nan:
             fig = visualize_bad_nan(raw.annotations)
             with _open_report(
                 cfg=cfg,
@@ -207,7 +207,7 @@ def run_ica(
         if cfg.ica_l_freq is not None or h_freq is not None:
             
             extra_kws = dict(cfg.ica_filter_extra_kws or {})
-            if cfg.ica_remove_nan:
+            if cfg.ica_skip_nan:
                 extra_kws["skip_by_annotation"] = ["BAD_NAN"]
             raw.filter(l_freq=cfg.ica_l_freq, h_freq=h_freq, n_jobs=1, **extra_kws)
 
@@ -436,7 +436,7 @@ def get_config(
         ica_decim=config.ica_decim,
         ica_reject=config.ica_reject,
         ica_use_icalabel=config.ica_use_icalabel,
-        ica_remove_nan = config.ica_remove_nan,
+        ica_skip_nan = config.ica_skip_nan,
         autoreject_n_interpolate=config.autoreject_n_interpolate,
         random_state=config.random_state,
         ch_types=config.ch_types,
