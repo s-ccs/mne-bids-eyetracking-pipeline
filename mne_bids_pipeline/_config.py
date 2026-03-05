@@ -1678,6 +1678,9 @@ ica_remove_nan: bool = True
 """
 Annotate all nan's and remove them for the ICA fit. 
 This is implemented via mne.annotate_nan, which adds BAD_NAN annotations.
+
+This setting also overwrites the `skip_by_annotation` key in `ica_filter_extra_kws` 
+to `{"skip_by_annotation":"BAD_NAN"}`
 """
 
 ica_use_ecg_detection: bool = True

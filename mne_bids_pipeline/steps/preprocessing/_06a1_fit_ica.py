@@ -205,7 +205,11 @@ def run_ica(
             del nyq
 
         if cfg.ica_l_freq is not None or h_freq is not None:
-            raw.filter(l_freq=cfg.ica_l_freq, h_freq=h_freq, n_jobs=1,**cfg.ica_filter_extra_kws)
+            
+            extra_kws = dict(cfg.ica_filter_extra_kws or {})
+            if cfg.ica_remove_nan:
+                extra_kws["skip_by_annotation"] = ["BAD_NAN"]
+            raw.filter(l_freq=cfg.ica_l_freq, h_freq=h_freq, n_jobs=1, **extra_kws)
 
         # Only keep the subset of the mapping that applies to the current run
         event_id = event_name_to_code_map.copy()
