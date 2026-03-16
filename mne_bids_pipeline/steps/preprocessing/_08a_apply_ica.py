@@ -168,6 +168,14 @@ def apply_ica_epochs(
         kwargs["emoji"] = "skip"
     logger.info(**gen_log_kwargs(message=msg, **kwargs))
     if ica.exclude:
+                # handle NANs for plotting
+        import numpy as np
+        epochs.drop_bad(
+            reject={"eeg": lambda x: (
+                np.isnan(x).any(),  # This returns a single boolean
+                "NaN detected in EEG data",
+            )}
+        )
         with _open_report(
             cfg=cfg,
             exec_params=exec_params,
