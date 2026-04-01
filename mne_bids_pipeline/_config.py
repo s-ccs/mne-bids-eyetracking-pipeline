@@ -1676,11 +1676,14 @@ it is to run but the less data you have to compute a good ICA. Set to
 
 ica_skip_nan: bool = True
 """
-Annotate all nan's and skip them for the ICA fit. 
+Annotate all nan's prior to ICA fit, and skip them for the ICA fit. 
 This is implemented via mne.annotate_nan, which adds BAD_NAN annotations.
 
-This setting also overwrites the `skip_by_annotation` key in `ica_filter_extra_kws` 
-to `{"skip_by_annotation":"BAD_NAN"}`
+The user should think whether they want to set `ica_filter_extra_kws` to
+ `{"skip_by_annotation":"BAD_NAN"}` (and the respective `bandpass_extra_kws`
+ and `notch_extra_kws`). If they are not, NANs are "propagating" to the
+ filter window length. If they are set, filter-artefacts at the boundaries
+ to the NANs might be introduced.
 """
 
 ica_use_ecg_detection: bool = True

@@ -207,8 +207,6 @@ def run_ica(
         if cfg.ica_l_freq is not None or h_freq is not None:
             
             extra_kws = dict(cfg.ica_filter_extra_kws or {})
-            if cfg.ica_skip_nan:
-                extra_kws["skip_by_annotation"] = ["BAD_NAN"]
             raw.filter(l_freq=cfg.ica_l_freq, h_freq=h_freq, n_jobs=1, **extra_kws)
 
         # Only keep the subset of the mapping that applies to the current run
