@@ -36,7 +36,28 @@ from mne_bids_pipeline._run import (
     save_logs,
 )
 from mne_bids_pipeline.typing import InFilesT, OutFilesT
+from matplotlib.patches import Rectangle
+import matplotlib.pyplot as plt
 
+def visualize_bad_nan(annotations):
+    """Simple visualization of BAD_NAN annotations with scatter for others"""
+    fig, ax = plt.subplots(figsize=(10, 0.5))
+    
+    for ann in annotations:
+        if ann['description'] == 'BAD_NAN':
+            # Draw rectangle for BAD_NAN segments
+            rect = Rectangle((ann['onset'], 0), ann['duration'], 1, 
+                        facecolor='blue', alpha=0.7)
+            ax.add_patch(rect)
+        else:
+            # Draw scatter point for other annotations
+            ax.scatter(ann['onset'], 0.5, c='green', s=50, marker='o')
+    
+    
+    ax.set_ylim(0, 1)
+    ax.set_xlabel('Time (s)')
+    ax.set_yticks([])
+    return fig
 
 def get_input_fnames_run_ica(
     *,
@@ -104,12 +125,14 @@ def run_ica(
     # across all runs.
     event_name_to_code_map = annotations_to_events(raw_paths=raw_fnames)
 
+    
     epochs = None
     for idx, (run, raw_fname) in enumerate(zip(cfg.runs, raw_fnames)):
         msg = f"Processing raw data from {raw_fname.basename}"
         logger.info(**gen_log_kwargs(message=msg))
         raw = mne.io.read_raw_fif(raw_fname)
         picks = raw.get_channel_types(unique=True)
+
         # if we have M/EEG data but only want to process EEG data, we need to remove
         # the EEG data here to avoid issues with ICA application later.
         # picking just the cfg.datatype will exclude stuff like EOG channels that
@@ -117,6 +140,34 @@ def run_ica(
         if "eeg" not in cfg.datatype and "eeg" in picks:
             picks.remove("eeg")
         raw.pick(picks=picks).load_data()
+
+        nan_annotations = mne.preprocessing.annotate_nan(raw) if cfg.ica_skip_nan else None
+        if nan_annotations is not None:
+            logger.info(**gen_log_kwargs(message=f"Found {len(nan_annotations)} NaN segments in the data. These will be annotated as BAD_NAN and ignored for ICA fitting."))
+            raw.set_annotations(raw.annotations + nan_annotations)
+
+        if cfg.ica_skip_nan:
+            fig = visualize_bad_nan(raw.annotations)
+            with _open_report(
+                cfg=cfg,
+                exec_params=exec_params,
+                subject=subject,
+                session=session,
+                run=run,
+                task=cfg.task,
+            ) as report:
+                caption = "Visualization of BAD_NAN annotations (in blue) that were automatically added to the raw data before ICA fitting. These segments contained NaN values and were ignored for ICA fitting. Other annotations are shown as green dots."
+                report.add_figure(
+                    fig=fig,
+                    title="BAD_NAN annotations for ICA fitting",
+                    section="ICA: nan removal",
+                    caption=caption,
+                    tags=("ica", "nan"),
+                    replace=True,
+                )
+                plt.close(fig)
+
+
 
         # Produce high-pass filtered version of the data for ICA.
         # Sanity check – make sure we're using the correct data!
@@ -155,7 +206,9 @@ def run_ica(
             del nyq
 
         if cfg.ica_l_freq is not None or h_freq is not None:
-            raw.filter(l_freq=cfg.ica_l_freq, h_freq=h_freq, n_jobs=1)
+            
+            extra_kws = dict(cfg.ica_filter_extra_kws or {})
+            raw.filter(l_freq=cfg.ica_l_freq, h_freq=h_freq, n_jobs=1, **extra_kws)
 
         # Only keep the subset of the mapping that applies to the current run
         event_id = event_name_to_code_map.copy()
@@ -342,6 +395,7 @@ def run_ica(
             replace=True,
             tags=tags,
         )
+            
         if cfg.ica_reject == "autoreject_local":
             assert ar_reject_log is not None
             caption = (
@@ -388,6 +442,7 @@ def get_config(
         ica_decim=config.ica_decim,
         ica_reject=config.ica_reject,
         ica_use_icalabel=config.ica_use_icalabel,
+        ica_skip_nan = config.ica_skip_nan,
         autoreject_n_interpolate=config.autoreject_n_interpolate,
         random_state=config.random_state,
         ch_types=config.ch_types,
@@ -411,6 +466,7 @@ def get_config(
         rest_epochs_overlap=config.rest_epochs_overlap,
         processing="eyelink" if config.sync_eyelink else "filt" if config.regress_artifact is None else "regress",
         _epochs_split_size=config._epochs_split_size,
+        ica_filter_extra_kws = config.ica_filter_extra_kws,
         **_bids_kwargs(config=config),
     )
     return cfg

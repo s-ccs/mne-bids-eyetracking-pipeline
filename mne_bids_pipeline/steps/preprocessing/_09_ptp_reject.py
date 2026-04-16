@@ -225,7 +225,14 @@ def drop_ptp(
                 replace=True,
                 tags=tags,
             )
-
+        # handle NANs for plotting
+        import numpy as np
+        epochs.drop_bad(
+            reject={"eeg": lambda x: (
+                np.isnan(x).any(),  # This returns a single boolean
+                "NaN detected in EEG data",
+            )}
+        )
         report.add_epochs(
             epochs=epochs,
             title=title,
