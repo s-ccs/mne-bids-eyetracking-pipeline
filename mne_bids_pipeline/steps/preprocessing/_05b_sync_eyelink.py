@@ -142,6 +142,32 @@ def get_input_fnames_sync_eyelink(
   
     return in_files
 
+def _time_search(diffs_short, diffs_long, tol):
+    # uses a brute force sum of squares search to find the optimal starting point
+    len_delta = len(diffs_long) - len(diffs_short)
+    # get the optimal starting point
+    ssqs = np.zeros(len_delta)
+    for idx in range(0, len_delta):
+        ssqs[idx] = ((diffs_long[idx:idx+len(diffs_short)] - diffs_short)**2).sum()
+    best_start = np.argmin(ssqs)
+    # cut off point at the end
+    good_end = best_start + len(diffs_short) + 1 # plus one because we calculated on differences, which have one less
+    
+    return best_start, good_end
+        
+def _adjusted_align(times_a, times_b, tol=0.001):
+    # from two times series, trim the larger one so that it optimally overlaps with the smaller
+    times_a, times_b = np.array(times_a), np.array(times_b)
+    # establish which one is shorter and which is longer
+    times = [times_a, times_b]
+    len_inds = np.argsort([len(t) for t in times])
+    # time difference between samples
+    diffs = [time[1:]-time[:-1] for time in times]
+    # get inds for clipping
+    best_start, good_end = _time_search(*[diffs[i] for i in len_inds], tol)
+    # trim the longer one
+    times[len_inds[1]] = times[len_inds[1]][best_start:good_end]
+    return times[0], times[1]
 
 
 @failsafe_run(
@@ -203,7 +229,11 @@ def sync_eyelink(
     
     et_sync_times = [annotation["onset"] for annotation in raw_et.annotations if re.search(cfg.sync_eventtype_regex_et,annotation["description"])]
     sync_times    = [annotation["onset"] for annotation in raw.annotations    if re.search(cfg.sync_eventtype_regex,   annotation["description"])]
-    assert len(et_sync_times) == len(sync_times),f"Detected eyetracking and EEG sync events were not of equal size ({len(et_sync_times)} vs {len(sync_times)}). Adjust your regular expressions via 'sync_eventtype_regex_et' and 'sync_eventtype_regex' accordingly"
+    if len(et_sync_times) != len(sync_times):
+        logger.info(**gen_log_kwargs(message=f"Detected eyetracking and EEG sync events were not of equal size ({len(et_sync_times)} vs {len(sync_times)}). Attempting adjusted alignment..."))
+        et_sync_times, sync_times =_adjusted_align(et_sync_times, sync_times)
+        logger.info(**gen_log_kwargs(message=f"ET and EEG sync times cut to {len(et_sync_times)}/{len(sync_times)}"))
+    
     assert len(sync_times) > 1,f"Not enough distinct sync events for realignment ({len(sync_times)})" #else realign_raw fails its regression
     #logger.info(**gen_log_kwargs(message=f"{et_sync_times}"))
     #logger.info(**gen_log_kwargs(message=f"{sync_times}"))
@@ -377,7 +407,9 @@ def sync_eyelink(
     et_onsets = [annot["onset"] for annot in raw.annotations if re.match("ET_"+cfg.sync_eventtype_regex_et, annot["description"])]
  
     if len(raw_onsets) != len(et_onsets):
-        raise ValueError(f"Lengths of raw {len(raw_onsets)} and ET {len(et_onsets)} onsets do not match.")
+        logger.info(**gen_log_kwargs(message=f"Detected eyetracking and EEG sync events were not of equal size ({len(et_onsets)} vs {len(raw_onsets)}). Attempting adjusted alignment..."))
+        raw_onsets, et_onsets =_adjusted_align(raw_onsets, et_onsets)
+        logger.info(**gen_log_kwargs(message=f"ET and EEG sync times cut to {len(et_sync_times)}/{len(sync_times)}"))
     # regress and plot
     coef = np.polyfit(raw_onsets, et_onsets, 1)
     preds = np.poly1d(coef)(raw_onsets)
