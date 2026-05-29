@@ -146,13 +146,12 @@ def _time_search(diffs_short, diffs_long, tol):
     # uses a brute force sum of squares search to find the optimal starting point
     len_delta = len(diffs_long) - len(diffs_short)
     # get the optimal starting point
-    ssqs = np.zeros(len_delta)
-    for idx in range(0, len_delta):
+    ssqs = np.zeros(len_delta+1)
+    for idx in range(0, len_delta+1):
         ssqs[idx] = ((diffs_long[idx:idx+len(diffs_short)] - diffs_short)**2).sum()
     best_start = np.argmin(ssqs)
     # cut off point at the end
     good_end = best_start + len(diffs_short) + 1 # plus one because we calculated on differences, which have one less
-    
     return best_start, good_end
         
 def _adjusted_align(times_a, times_b, tol=0.001):
@@ -233,7 +232,6 @@ def sync_eyelink(
         logger.info(**gen_log_kwargs(message=f"Detected eyetracking and EEG sync events were not of equal size ({len(et_sync_times)} vs {len(sync_times)}). Attempting adjusted alignment..."))
         et_sync_times, sync_times =_adjusted_align(et_sync_times, sync_times)
         logger.info(**gen_log_kwargs(message=f"ET and EEG sync times cut to {len(et_sync_times)}/{len(sync_times)}"))
-    
     assert len(sync_times) > 1,f"Not enough distinct sync events for realignment ({len(sync_times)})" #else realign_raw fails its regression
     #logger.info(**gen_log_kwargs(message=f"{et_sync_times}"))
     #logger.info(**gen_log_kwargs(message=f"{sync_times}"))
