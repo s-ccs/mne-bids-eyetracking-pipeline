@@ -26,7 +26,7 @@ dependencies = [
   "json_tricks",
   "jupyter-server-proxy",
   "matplotlib",
-  "meegkit",
+  "mne_denoise",
   "mne-bids[full]",
   "mne-icalabel",
   "mne[hdf5] >=1.7",

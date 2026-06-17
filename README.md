@@ -11,7 +11,7 @@
 - Synchronisation of EyeLink: Judith Schepers, Jevri Hanna, Benedikt Ehinger
 - Synchronisation of SMI: Okan Mazlum (not yet merged)
 - IClabel: Judith Schepers, Sven Naber -> already merged upstream
-- Zapline: Boschra Ariguib -> already merged upstream
+- Zapline: Boschra Ariguib -> René Skukies (changed to mne-denoise including ZaplinePlus, not yet merged)
 
 - Supervision & Code review: Benedikt Ehinger
 

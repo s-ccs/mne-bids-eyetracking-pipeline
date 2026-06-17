@@ -20,7 +20,7 @@ from typing import Any, Literal
 
 import mne
 import numpy as np
-from meegkit import dss
+from mne_denoise.zapline import ZapLine
 from mne.io.pick import _picks_to_idx
 from mne.preprocessing import EOGRegression
 
@@ -82,10 +82,19 @@ def zapline(
     logger.info(**gen_log_kwargs(message=msg))
     sfreq = raw.info["sfreq"]
     picks = mne.pick_types(raw.info, meg=True, eeg=True)
-    data = raw.get_data(picks).T  # transpose to (n_samples, n_channels)
-    func = dss.dss_line_iter if iter_ else dss.dss_line
-    out, _ = func(data, fline, sfreq)
-    raw._data[picks] = out.T  # type: ignore[invalid-assignment]
+    
+    if iter_:
+        zapline = ZapLine(
+            sfreq=sfreq,
+            line_freq=fline, 
+            adaptive=True,
+        )
+    else:
+        zapline = ZapLine(sfreq=sfreq, line_freq=fline)
+    
+    out = zapline.fit_transform(raw.copy().pick(picks))
+    
+    raw._data[picks] = out.get_data()  # type: ignore[invalid-assignment]
 
 
 def notch_filter(
@@ -255,7 +264,7 @@ def filter_data(
         run=run,
         task=task,
         fline=cfg.zapline_fline,
-        iter_=cfg.zapline_iter,
+        iter_=cfg.zapline_plus,
     )
     notch_filter(
         raw=raw,
@@ -343,7 +352,7 @@ def get_config(
         h_freq=config.h_freq,
         notch_freq=config.notch_freq,
         zapline_fline=config.zapline_fline,
-        zapline_iter=config.zapline_iter,
+        zapline_plus=config.zapline_plus,
         l_trans_bandwidth=config.l_trans_bandwidth,
         h_trans_bandwidth=config.h_trans_bandwidth,
         notch_trans_bandwidth=config.notch_trans_bandwidth,

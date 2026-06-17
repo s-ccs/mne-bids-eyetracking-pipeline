@@ -944,13 +944,15 @@ Specifies the width of each stop band. `None` uses the MNE default.
 
 zapline_fline: float | None = None
 """
-Specifies frequency to remove using Zapline filtering. If None, zapline will not
+Specifies frequency to remove using Zapline filtering from mne-denoise. If None, zapline will not
 be used.
+NOTE: As of June.2026, the mne-denoise package needs to be installed from GitHub NOT from pip. The pip version is currently buggy, but a future release (~ July.2026) is planned.
 """
 
-zapline_iter: bool = False
+zapline_plus: bool = False
 """
-Specifies if the iterative version of the Zapline algorithm should be run.
+Specifies if the ZaplinePlus (i.e adaptive) algorithm should be run.
+NOTE: As of June.2026, the mne-denoise package needs to be installed from GitHub NOT from pip. The pip version is currently buggy, but a future release (~ July.2026) is planned.
 """
 
 notch_extra_kws: dict[str, Any] = {}
