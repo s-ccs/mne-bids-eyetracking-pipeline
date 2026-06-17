@@ -503,7 +503,7 @@ def get_config(
         pyprep_by_nan_flat_params=config.pyprep_by_nan_flat_params,
         pyprep_by_ransac=config.pyprep_by_ransac,
         pyprep_by_ransac_params=config.pyprep_by_ransac_params,
-        pyprep_reject_by_annotation,
+        pyprep_reject_by_annotation = config.pyprep_reject_by_annotation,
         # find_bad_channels_extra_kws=config.find_bad_channels_extra_kws,
         **_import_data_kwargs(config=config, subject=subject),
         **extra_kwargs,
