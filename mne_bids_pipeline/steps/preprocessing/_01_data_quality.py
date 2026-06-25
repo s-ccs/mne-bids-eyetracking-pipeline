@@ -114,6 +114,36 @@ def assess_data_quality(
             cfg=cfg,
             data_is_rest=data_is_rest,
         )
+
+        # If break annotation was used, visualize breaks
+        if cfg.find_breaks:
+            from mne_bids_pipeline._viz import visualize_bad_breaks
+            break_fig = visualize_bad_breaks(raw, cfg.break_start_regex, cfg.break_end_regex, cfg.modify_break_regex_func)
+
+            msg = "Adding break annotation visualization to the report."
+            logger.info(**gen_log_kwargs(message=msg))
+            with _open_report(
+                cfg=cfg,
+                exec_params=exec_params,
+                subject=subject,
+                session=session,
+                run=run,
+                task=cfg.task,
+            ) as report:
+                caption = "Visualization of break annotations."
+                report.add_figure(
+                    fig=break_fig,
+                    title="Visualization of break annotations",
+                    #section="ICA: nan removal",
+                    caption=caption,
+                    tags=("breaks"),
+                    replace=True,
+                )
+                plt.close(break_fig)
+
+
+
+
     preexisting_bads = sorted(raw.info["bads"])
 
     auto_scores: dict[str, FloatArrayT] | None = None
@@ -486,6 +516,10 @@ def get_config(
         )
         extra_kwargs["mf_head_origin"] = config.mf_head_origin
     cfg = SimpleNamespace(
+        # find_breaks=config.find_breaks,
+        # break_start_regex=config.break_start_regex,
+        # break_end_regex=config.break_end_regex,
+        # modify_break_regex_func=config.modify_break_regex_func,
         # These are included in _import_data_kwargs for automatic add_bads
         # detection
         # find_flat_channels_meg=config.find_flat_channels_meg,
