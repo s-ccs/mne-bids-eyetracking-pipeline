@@ -460,7 +460,12 @@ def _find_bads_pyprep(
 ) -> tuple[list[str], list[str], dict[str, FloatArrayT]]:
     msg = "Finding noisy channels with PyPREP."
     logger.info(**gen_log_kwargs(message=msg))
-    noisy_chans = NoisyChannels(raw)
+    noisy_chans = NoisyChannels(raw, reject_by_annotation=cfg.pyprep_reject_by_annotation)
+    if cfg.pyprep_reject_by_annotation == "omit":
+        msg = "Excluding data segments with bad-annotations e.g. BAD_break for bad channel detection."
+    else:
+        msg = "BAD data segment annotations are ignored for bad channel detection i.e. the full recording is used."
+    logger.info(**gen_log_kwargs(message=msg))
     if cfg.pyprep_all_bads:
         msg = "Running pyprep all bads"
         logger.info(**gen_log_kwargs(message=msg))
@@ -537,6 +542,7 @@ def get_config(
         pyprep_by_nan_flat_params=config.pyprep_by_nan_flat_params,
         pyprep_by_ransac=config.pyprep_by_ransac,
         pyprep_by_ransac_params=config.pyprep_by_ransac_params,
+        pyprep_reject_by_annotation = config.pyprep_reject_by_annotation,
         # find_bad_channels_extra_kws=config.find_bad_channels_extra_kws,
         **_import_data_kwargs(config=config, subject=subject),
         **extra_kwargs,
