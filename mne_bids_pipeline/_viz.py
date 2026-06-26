@@ -106,7 +106,7 @@ def visualize_bad_breaks(raw, break_start_regex=None, break_end_regex=None, modi
             regex=True)].index]
 
     
-    fig, ax = plt.subplots(3, 1,figsize=(16, 9), height_ratios=[1,4,1.5])
+    fig, ax = plt.subplots(3, 1,figsize=(10, 7), height_ratios=[1,4,1.5])
 
     # Simple visualisation of break segments in the data (including beginning and end)
     for ann in annotations:
