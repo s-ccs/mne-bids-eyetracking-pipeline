@@ -1,3 +1,4 @@
+from numba.core.ir import Return
 from collections.abc import Iterable
 from types import SimpleNamespace
 from typing import Any, Literal
@@ -598,7 +599,7 @@ def _find_breaks_func_by_gaps(
     )
     logger.info(**gen_log_kwargs(message=msg))
 
-    raw.set_annotations(raw.annotations + break_annots)  # add to existing
+    raw.set_annotations(raw.annotations + break_annots)
 
 
 def _find_breaks_func_by_markers(
@@ -621,10 +622,23 @@ def _find_breaks_func_by_markers(
         elif re.search(cfg.break_end_regex, annot["description"]):
             ends.append(annot["onset"])
 
+    # If there are no complete break periods, log a message and return early
     if not starts or not ends:
         logger.info(**gen_log_kwargs(
             message=f"No complete break periods found(starts: {len(starts)}, ends: {len(ends)}); nothing to annotate."))
         return
+
+    # Check for consecutive starts or ends and log warnings if found
+    markers = sorted([(o, "start") for o in starts] + [(o, "end") for o in ends])
+    for (onset_prev, kind_prev), (onset_cur, kind_cur) in zip(markers, markers[1:]):
+        if kind_prev == "start" and kind_cur == "start":
+            logger.warning(**gen_log_kwargs(message=(
+                f"Found two break starts in a row (~{onset_prev:.2f}s and ~{onset_cur:.2f}s); "
+                f"Not annotated until the next break start at {onset_cur:.2f}s. Manual inspection recommended.")))
+        elif kind_prev == "end" and kind_cur == "end":
+            logger.warning(**gen_log_kwargs(message=(
+                f"Found two break ends in a row (~{onset_prev:.2f}s and ~{onset_cur:.2f}s); "
+                f"a break start may be missing, so that break was not annotated. Manual inspection recommended.")))
 
     # pair up starts and ends to create break annotations
     onsets, durations, annotations = [], [], []
@@ -641,11 +655,7 @@ def _find_breaks_func_by_markers(
             durations.append(ends[0] - rec_start)
             annotations.append("BAD_beginning")
         if next_start is not None and (end is None or next_start < end):  # if the next start comes before the end, we have an unmatched start
-            msg = (
-                f"Found a break start at {start:.2f}s that is not followed by a break end. "
-                f"Not annotated until the next break start at {next_start:.2f}s."
-            )
-            logger.warning(**gen_log_kwargs(message=msg))
+            continue  # skip this start, as it is unmatched
         elif end is not None:
             onsets.append(start)
             durations.append(end - start)
@@ -655,7 +665,6 @@ def _find_breaks_func_by_markers(
             durations.append(rec_end - start)
             annotations.append("BAD_ending")            
 
-    # convert to mne Annotations object
     break_annots = mne.Annotations(onset=onsets, duration=durations, description=annotations, orig_time=raw.annotations.orig_time)
 
     msg = (
@@ -664,7 +673,7 @@ def _find_breaks_func_by_markers(
     )
     logger.info(**gen_log_kwargs(message=msg))
 
-    raw.set_annotations(raw.annotations + break_annots)  # add to existing
+    raw.set_annotations(raw.annotations + break_annots) 
 
 
 def _get_bids_path_in(
