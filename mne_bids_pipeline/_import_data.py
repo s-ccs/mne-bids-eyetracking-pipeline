@@ -614,12 +614,20 @@ def _find_breaks_func_by_markers(
     msg = f"Finding breaks between markers {cfg.break_start_regex} and {cfg.break_end_regex}."
     logger.info(**gen_log_kwargs(message=msg))
 
-    # Look for the timesteps where the specified break markers occer in the annotations
+    if cfg.modify_break_regex_func:
+        break_start_regex, break_end_regex = cfg.modify_break_regex_func(raw, cfg.break_start_regex, cfg.break_end_regex)
+        msg = f"The regular expressions have been modified as following: \n Break_start_regex: {break_start_regex} \n Break_end_regex: {break_end_regex}"
+        logger.info(**gen_log_kwargs(message=msg))
+    else:
+        break_start_regex = cfg.break_start_regex
+        break_end_regex = cfg.break_end_regex
+
+    # Look for the timesteps where the specified break markers occur in the annotations
     starts, ends = [], []
     for annot in raw.annotations:
-        if re.search(cfg.break_start_regex, annot["description"]):
+        if re.search(break_start_regex, annot["description"]):
             starts.append(annot["onset"])
-        elif re.search(cfg.break_end_regex, annot["description"]):
+        elif re.search(break_end_regex, annot["description"]):
             ends.append(annot["onset"])
 
     # If there are no complete break periods, log a message and return early
@@ -977,6 +985,7 @@ def _import_data_kwargs(*, config: SimpleNamespace, subject: str) -> dict[str, A
         break_start_regex=config.break_start_regex,
         break_end_regex=config.break_end_regex,
         task_event_regex=config.task_event_regex,
+        modify_break_regex_func=config.modify_break_regex_func,
         # 6. _rename_events_func
         rename_events=config.rename_events,
         on_rename_missing_events=config.on_rename_missing_events,
