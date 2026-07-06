@@ -114,6 +114,36 @@ def assess_data_quality(
             cfg=cfg,
             data_is_rest=data_is_rest,
         )
+
+        # If break annotation was used, visualize breaks
+        if cfg.find_breaks:
+            from mne_bids_pipeline._viz import visualize_bad_breaks
+            break_fig = visualize_bad_breaks(raw, cfg.break_start_regex, cfg.break_end_regex, cfg.modify_break_regex_func)
+
+            msg = "Adding break annotation visualization to the report."
+            logger.info(**gen_log_kwargs(message=msg))
+            with _open_report(
+                cfg=cfg,
+                exec_params=exec_params,
+                subject=subject,
+                session=session,
+                run=run,
+                task=cfg.task,
+            ) as report:
+                caption = "Visualization of break annotations."
+                report.add_figure(
+                    fig=break_fig,
+                    title="Visualization of break annotations",
+                    #section="ICA: nan removal",
+                    caption=caption,
+                    tags=("breaks"),
+                    replace=True,
+                )
+                plt.close(break_fig)
+
+
+
+
     preexisting_bads = sorted(raw.info["bads"])
 
     auto_scores: dict[str, FloatArrayT] | None = None
@@ -430,7 +460,12 @@ def _find_bads_pyprep(
 ) -> tuple[list[str], list[str], dict[str, FloatArrayT]]:
     msg = "Finding noisy channels with PyPREP."
     logger.info(**gen_log_kwargs(message=msg))
-    noisy_chans = NoisyChannels(raw)
+    noisy_chans = NoisyChannels(raw, reject_by_annotation=cfg.pyprep_reject_by_annotation)
+    if cfg.pyprep_reject_by_annotation == "omit":
+        msg = "Excluding data segments with bad-annotations e.g. BAD_break for bad channel detection."
+    else:
+        msg = "BAD data segment annotations are ignored for bad channel detection i.e. the full recording is used."
+    logger.info(**gen_log_kwargs(message=msg))
     if cfg.pyprep_all_bads:
         msg = "Running pyprep all bads"
         logger.info(**gen_log_kwargs(message=msg))
@@ -486,6 +521,10 @@ def get_config(
         )
         extra_kwargs["mf_head_origin"] = config.mf_head_origin
     cfg = SimpleNamespace(
+        # find_breaks=config.find_breaks,
+        # break_start_regex=config.break_start_regex,
+        # break_end_regex=config.break_end_regex,
+        # modify_break_regex_func=config.modify_break_regex_func,
         # These are included in _import_data_kwargs for automatic add_bads
         # detection
         # find_flat_channels_meg=config.find_flat_channels_meg,
@@ -503,6 +542,7 @@ def get_config(
         pyprep_by_nan_flat_params=config.pyprep_by_nan_flat_params,
         pyprep_by_ransac=config.pyprep_by_ransac,
         pyprep_by_ransac_params=config.pyprep_by_ransac_params,
+        pyprep_reject_by_annotation = config.pyprep_reject_by_annotation,
         # find_bad_channels_extra_kws=config.find_bad_channels_extra_kws,
         **_import_data_kwargs(config=config, subject=subject),
         **extra_kwargs,
