@@ -1419,6 +1419,13 @@ Regular expression used for searching for calibration events
 
 # run bad channel detection
 pyprep_bad_chans: bool = False
+
+pyprep_reject_by_annotation: Literal["omit"] | None = "omit"
+"""
+Whether to include BAD data segments (annotations starting with "BAD" or "bad" e.g. "BAD_break") for the bad channel detection.
+When set to "omit" (Default), BAD data segments will be excluded. When set to "None" the annotations will be ignored.
+"""
+
 ## variables which determine which algos to run
 # run all available algos. if True
 pyprep_all_bads: bool = True
