@@ -1,4 +1,3 @@
-from numba.core.ir import Return
 from collections.abc import Iterable
 from types import SimpleNamespace
 from typing import Any, Literal
