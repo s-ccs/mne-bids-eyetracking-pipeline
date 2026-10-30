@@ -20,10 +20,15 @@ from mne_bids import BIDSPath
 from mne_bids_pipeline._config_utils import (
     _bids_kwargs,
     _get_ss,
+    _get_task_average_epochs_tlims,
     get_eeg_reference,
-    get_runs,
+    get_runs_tasks,
 )
-from mne_bids_pipeline._import_data import annotations_to_events, make_epochs
+from mne_bids_pipeline._import_data import (
+    _epochs_kwargs,
+    annotations_to_events,
+    make_epochs,
+)
 from mne_bids_pipeline._logging import gen_log_kwargs, logger
 from mne_bids_pipeline._parallel import get_parallel_backend, parallel_func
 from mne_bids_pipeline._reference import set_initial_average_reference
@@ -47,7 +52,6 @@ def get_input_fnames_run_ica(
     bids_basename = BIDSPath(
         subject=subject,
         session=session,
-        task=cfg.task,
         acquisition=cfg.acq,
         recording=cfg.rec,
         space=cfg.space,
@@ -57,10 +61,10 @@ def get_input_fnames_run_ica(
         extension=".fif",
     )
     in_files = dict()
-    for run in cfg.runs:
-        key = f"raw_run-{run}"
+    for run, task in cfg.runs_tasks:
+        key = f"raw_task-{task}_run-{run}"
         in_files[key] = bids_basename.copy().update(
-            run=run, processing=cfg.processing, suffix="raw"
+            run=run, task=task, processing=cfg.processing, suffix="raw"
         )
         _update_for_splits(in_files, key, single=True)
     return in_files
@@ -88,9 +92,13 @@ def run_ica(
         assert cfg.ica_h_freq == 100.0
         assert cfg.eeg_reference == "average"
 
-    raw_fnames = [in_files.pop(f"raw_run-{run}") for run in cfg.runs]
+    raw_fnames = [
+        in_files.pop(f"raw_task-{task}_run-{run}") for run, task in cfg.runs_tasks
+    ]
     out_files = dict()
-    bids_basename = raw_fnames[0].copy().update(processing=None, split=None, run=None)
+    bids_basename = (
+        raw_fnames[0].copy().update(processing=None, split=None, run=None, task=None)
+    )
     out_files["ica"] = bids_basename.copy().update(processing="icafit", suffix="ica")
     out_files["epochs"] = (
         out_files["ica"].copy().update(suffix="epo", processing="icafit")
@@ -105,7 +113,7 @@ def run_ica(
     event_name_to_code_map = annotations_to_events(raw_paths=raw_fnames)
 
     epochs = None
-    for idx, (run, raw_fname) in enumerate(zip(cfg.runs, raw_fnames)):
+    for idx, ((run, task), raw_fname) in enumerate(zip(cfg.runs_tasks, raw_fnames)):
         msg = f"Processing raw data from {raw_fname.basename}"
         logger.info(**gen_log_kwargs(message=msg))
         raw = mne.io.read_raw_fif(raw_fname)
@@ -169,7 +177,7 @@ def run_ica(
         these_epochs = make_epochs(
             subject=subject,
             session=session,
-            task=cfg.task,
+            task=cfg.all_tasks[0],
             conditions=cfg.conditions,
             raw=raw,
             event_id=event_id,
@@ -191,6 +199,8 @@ def run_ica(
         these_epochs.load_data()  # Remove reference to raw
         del raw  # free memory
 
+        # TODO: This creates epochs for all tasks using tmin/tmax from the first task
+        # only. Hopefully that's good enough but it's a bit of a hack...
         if epochs is None:
             epochs = these_epochs
         else:
@@ -333,7 +343,7 @@ def run_ica(
         exec_params=exec_params,
         subject=subject,
         session=session,
-        task=cfg.task,
+        task=cfg.all_tasks[0],
     ) as report:
         report.add_epochs(
             epochs=epochs,
@@ -376,9 +386,14 @@ def get_config(
     subject: str,
     session: str | None = None,
 ) -> SimpleNamespace:
+    # Not necessarily the right thing to do here, but since we can't concat epochs of
+    # different lengths, let's use the average tmin/tmax across tasks
+    epochs_tmin, epochs_tmax = _get_task_average_epochs_tlims(config=config)
     cfg = SimpleNamespace(
         conditions=config.conditions,
-        runs=get_runs(config=config, subject=subject),
+        runs_tasks=get_runs_tasks(
+            config=config, subject=subject, session=session, which=("runs",)
+        ),
         task_is_rest=config.task_is_rest,
         ica_h_freq=config.ica_h_freq,
         ica_l_freq=config.ica_l_freq,
@@ -393,24 +408,16 @@ def get_config(
         ch_types=config.ch_types,
         epochs_decim=config.epochs_decim,
         raw_resample_sfreq=config.raw_resample_sfreq,
-        event_repeated=config.event_repeated,
-        epochs_tmin=config.epochs_tmin,
-        epochs_tmax=config.epochs_tmax,
-        epochs_custom_metadata=config.epochs_custom_metadata,
-        epochs_metadata_tmin=config.epochs_metadata_tmin,
-        epochs_metadata_tmax=config.epochs_metadata_tmax,
-        epochs_metadata_keep_first=config.epochs_metadata_keep_first,
-        epochs_metadata_keep_last=config.epochs_metadata_keep_last,
-        epochs_metadata_query=config.epochs_metadata_query,
+        epochs_tmin=epochs_tmin,
+        epochs_tmax=epochs_tmax,
         eeg_reference=get_eeg_reference(config),
         eeg_online_reference_channel=config.eeg_online_reference_channel,
         add_online_reference_channel=config.add_online_reference_channel,
         drop_channel_after_rereference=config.drop_channel_after_rereference,
         eeg_template_montage=config.eeg_template_montage,
-        rest_epochs_duration=config.rest_epochs_duration,
-        rest_epochs_overlap=config.rest_epochs_overlap,
         processing="eyelink" if config.sync_eyelink else "filt" if config.regress_artifact is None else "regress",
         _epochs_split_size=config._epochs_split_size,
+        **_epochs_kwargs(config=config),
         **_bids_kwargs(config=config),
     )
     return cfg

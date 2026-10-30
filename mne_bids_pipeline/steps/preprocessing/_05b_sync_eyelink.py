@@ -10,7 +10,7 @@ from numpy.polynomial.polynomial import Polynomial
 from ..._config_utils import (
     _bids_kwargs,
     get_eeg_reference,
-    get_runs,
+    get_runs_tasks,
     get_sessions,
     get_subjects,
     _get_ss,
@@ -75,7 +75,7 @@ def get_input_fnames_sync_eyelink(
     
     # Get from config file whether `task` is specified in the et file name
     if cfg.et_has_task == True:
-        et_task = cfg.task
+        et_task = task
     else:
         et_task = None
 
@@ -83,7 +83,7 @@ def get_input_fnames_sync_eyelink(
         subject=subject,
         session=session,
         run=run,
-        task=cfg.task,
+        task=task,
         acquisition=cfg.acq,
         recording=cfg.rec,
         space=cfg.space,
@@ -406,7 +406,7 @@ def sync_eyelink(
         subject=subject,
         session=session,
         run=run,
-        task=cfg.task,
+        task=task,
     ) as report:
         caption = caption
         report.add_figure(
@@ -432,7 +432,7 @@ def get_config(
     #logger.info(**gen_log_kwargs(message=f"config {config}"))
 
     cfg = SimpleNamespace(
-        runs=get_runs(config=config, subject=subject),
+        runs_tasks=get_runs_tasks(config=config, subject=subject, session=session, which=("runs",)),
         remove_blink_saccades   = config.remove_blink_saccades,
         et_has_run = config.et_has_run,
         et_has_task = config.et_has_task,
