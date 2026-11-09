@@ -3,6 +3,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
+from matplotlib.patches import Rectangle
+import matplotlib.pyplot as plt
 
 
 def plot_auto_scores(
@@ -79,3 +81,96 @@ def plot_auto_scores(
     assert figs
 
     return figs
+
+def visualize_bad_breaks(raw, break_start_regex=None, break_end_regex=None, modify_break_regex_func=None):
+    """Visualization of BAD_break, BAD_ending and BAD_beginning annotations + underlying events"""
+
+    events = raw.annotations.to_data_frame(time_format=None)
+    first_time = raw.first_time
+
+    # If breaks were annotated using break start and end regex, extract potentially modified regex
+    if break_start_regex and break_end_regex:
+        if modify_break_regex_func:
+            break_start_regex_new, break_end_regex_new = modify_break_regex_func(raw, break_start_regex, break_end_regex)
+        else:
+            break_start_regex_new = break_start_regex
+            break_end_regex_new = break_end_regex
+
+        # Extract break annotations together with the underlying break events
+        annotations = raw.annotations[events[events['description'].astype(str).str.contains(
+            f"BAD_break|{break_start_regex_new}|{break_end_regex_new}|BAD_beginning|BAD_ending",
+            regex=True)].index]
+    else: # In the case that breaks were identified using gaps, only use resulting break annotations
+        annotations = raw.annotations[events[events['description'].astype(str).str.contains(
+            f"BAD_break",
+            regex=True)].index]
+
+    
+    fig, ax = plt.subplots(3, 1,figsize=(10, 7), height_ratios=[1,4,1.5])
+
+    # Simple visualisation of break segments in the data (including beginning and end)
+    for ann in annotations:
+        if ann['description'] in ['BAD_break', 'BAD_beginning', 'BAD_ending']:
+            # Draw rectangle for BAD segments
+            rect = Rectangle((ann['onset'], 0), ann['duration'], 1, 
+                        facecolor='red', alpha=0.2, label='Annotated breaks')
+            ax[0].add_patch(rect)
+        else:
+            # Draw vertial line for underlying "break" events
+            ax[0].vlines(ann['onset'], 0, 1, colors='black', label='Underyling break events')
+    
+    
+    ax[0].set_ylim(0, 1)
+    ax[0].set_xlim(raw.times[0]+first_time,raw.times[-1]+first_time) # Add first_time to align with annotation time
+    ax[0].set_xlabel('Time (s)')
+    ax[0].set_yticks([])
+    ax[0].set_title('Break visualisation', loc='left', pad=12)
+
+    
+    handles, labels = ax[0].get_legend_handles_labels()
+    by_label = dict(zip(labels, handles)) # to avoid duplicate labels
+    ax[0].legend(
+        by_label.values(),
+        by_label.keys(),
+        loc="upper left",
+        bbox_to_anchor=(1.,1),
+        frameon=False
+    )
+
+    # Table with additional information (e.g. break onset, duration etc)
+    df_breaks = events[events['description'].astype(str).str.contains(
+        "BAD_break|BAD_beginning|BAD_ending",
+        regex=True)]
+    
+    # Extract table data from DataFrame
+    table_data = df_breaks.values  # Convert DataFrame to NumPy array
+    table_columns = df_breaks.columns  # Get column names
+    
+    # Add a header row to the table data
+    table_data_with_header = [list(table_columns)] + [list(row) for row in table_data]
+    
+    # Add table to the plot
+    table = ax[1].table(
+        cellText=table_data_with_header,
+        cellLoc="center",
+        loc="center",
+        bbox=[0, 0, 1, 1],
+    )
+    ax[1].set_xticks([])
+    ax[1].set_yticks([])
+    ax[1].set_title('Additional information', loc='left', pad=12)
+
+    if break_start_regex and break_end_regex:
+        # Add the regular expressions that were used for the break annotation
+        ax[2].text(
+        0., 1,
+        f"(Modified) break start regex:\n{break_start_regex_new} \n \n (Modified) break end regex:\n{break_end_regex_new}",
+        fontsize=10,
+        verticalalignment="top",
+    )
+        ax[2].set_axis_off()
+        ax[2].set_title("Regular expressions used for break annotation", loc='left', pad=12)
+    
+    fig.tight_layout()
+    
+    return fig
