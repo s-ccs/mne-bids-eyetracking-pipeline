@@ -7,6 +7,7 @@ import pandas as pd
 from annotated_types import Ge, Interval, Len, MinLen
 from mne import Covariance
 from mne_bids import BIDSPath
+from mne.io.base import BaseRaw
 
 from mne_bids_pipeline.typing import (
     ArbitraryContrast,
@@ -618,6 +619,61 @@ break *ends* when the next block *begins*.
 ???+ example "Example"
 ```python
     break_end_regex = r"block\\d+_start"
+```
+"""
+
+modify_break_regex_func: Callable[[BaseRaw, str, str], tuple[str, str]] | None = None
+"""
+A custom function to dynamically modify [`break_start_regex`][mne_bids_pipeline._config.break_start_regex] and
+[`break_end_regex`][mne_bids_pipeline._config.break_end_regex] patterns based on any information extracted
+from the `Raw` object or its annotations.
+
+The function must accept the following arguments:
+
+- `raw`: The MNE `Raw` object.
+- `break_start_regex` (str): The current regex pattern for identifying the start of breaks.
+- `break_end_regex` (str): The current regex pattern for identifying the end of breaks.
+
+The function must return a tuple of two regular expressions:
+- The new `break_start_regex` pattern to use.
+- The new `break_end_regex` pattern to use.
+
+A use case could be that there are only break start and stop markers in the data but neither
+block start and stop markers nor start and stop experiment markers. In this case the beginning and ending
+of the recording cannot be automatically annotated as breaks.
+As a solution, start and stop of the experiment can be dynamically added to the regex depending on the first
+and last experimental event markers that have been sent.
+
+???+ example "Example"
+```python
+    # To avoid pickling issues (due to the use of the re package),
+    # define this function in an extra Python file e.g. custom_config_functions.py
+
+    from mne.io.base import BaseRaw
+    from typing import Tuple 
+    import re
+
+    def add_start_and_stop_experiment(
+            raw: BaseRaw,
+            break_start_regex:str,
+            break_end_regex:str
+    ) -> Tuple[str, str]:
+        experiment_events_regex = r".*-trigger=0.*"
+        experiment_annotations = [ann for ann in raw.annotations if re.search(experiment_events_regex, ann["description"])]
+        first_exp_event = re.escape(experiment_annotations[0]["description"])
+        last_exp_event = re.escape(experiment_annotations[-1]["description"])
+
+        break_start_regex_new = break_start_regex + "|" + last_exp_event
+        break_end_regex_new = break_end_regex + "|" + first_exp_event
+
+        return break_start_regex_new, break_end_regex_new
+
+    # In the config file the function is imported
+    import sys
+    sys.path.append("/folder/of/custom_config_functions.py")
+    from custom_config_functions import add_start_and_stop_experiment
+
+    modify_break_regex_func = add_start_and_stop_experiment
 ```
 """
 
