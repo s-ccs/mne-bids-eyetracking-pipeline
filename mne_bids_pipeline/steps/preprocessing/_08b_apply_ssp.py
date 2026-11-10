@@ -171,6 +171,7 @@ def get_config(
         eeg_reference=get_eeg_reference(config),
         eeg_online_reference_channel=config.eeg_online_reference_channel,
         drop_channel_after_rereference=config.drop_channel_after_rereference,
+        eeg_template_montage=config.eeg_template_montage,
         **_raw_path_kwargs(config=config, subject=subject, session=session),
     )
     return cfg

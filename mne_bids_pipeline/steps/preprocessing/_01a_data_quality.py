@@ -460,7 +460,7 @@ def _find_bads_pyprep(
         if cfg.pyprep_by_nan_flat:
             msg = "Running pyprep nanflat"
             logger.info(**gen_log_kwargs(message=msg))
-            noisy_chans.find_bad_by_nan_flat(**cfg.pyprep_by_nanflat_params)
+            noisy_chans.find_bad_by_nan_flat(**cfg.pyprep_by_nan_flat_params)
         if cfg.pyprep_by_ransac:
             msg = "Running pyprep ransac"
             logger.info(**gen_log_kwargs(message=msg))

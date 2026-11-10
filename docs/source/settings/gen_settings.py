@@ -29,6 +29,7 @@ section_to_file = {  # .md will be added to the files
     "filtering &": None,  # just a header
     "artifact removal": None,
     "stimulation artifact": "stim_artifact",
+    "sync with": "sync_eyelink",
     "ssp, ica,": "ssp_ica",
     "amplitude-based artifact": "artifacts",
     # folder
@@ -70,6 +71,7 @@ section_tags = {
     "resampling": ("preprocessing", "resampling", "decimation", "raw", "epochs"),
     "epoching": ("preprocessing", "epochs", "events", "metadata", "resting-state"),
     "stimulation artifact": ("preprocessing", "artifact-removal", "raw", "epochs"),
+    "sync with": ("preprocessing", "eyelink", "synchronization"),
     "ssp, ica,": ("preprocessing", "artifact-removal", "raw", "epochs", "ssp", "ica"),
     "amplitude-based artifact": ("preprocessing", "artifact-removal", "epochs"),
     "sensor-level analysis": (),
@@ -100,6 +102,7 @@ section_titles = {
     "resampling": "Resampling",
     "epoching": "Epoching",
     "stimulation artifact": "Stimulation artifact",
+    "sync with": "Sync with EyeLink",
     "ssp, ica,": "SSP, ICA, and artifact regression",
     "amplitude-based artifact": "Amplitude-based artifact rejection",
     "condition contrasts": "Condition contrasts",
