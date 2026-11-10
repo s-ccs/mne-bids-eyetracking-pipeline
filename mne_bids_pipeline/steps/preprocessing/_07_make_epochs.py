@@ -29,7 +29,7 @@ from mne_bids_pipeline._import_data import (
 )
 from mne_bids_pipeline._logging import gen_log_kwargs, logger
 from mne_bids_pipeline._parallel import get_parallel_backend, parallel_func
-from mne_bids_pipeline._reference import set_initial_average_reference
+from mne_bids_pipeline._reference import _set_eeg_reference
 from mne_bids_pipeline._report import _get_prefix_tags, _open_report
 from mne_bids_pipeline._run import (
     _ignore_warnings,
@@ -228,12 +228,7 @@ def run_epochs(
             msg = f'The MEG rank of the "{task}" epochs is now: {rank_epochs_new}'
             logger.warning(**gen_log_kwargs(message=msg))
 
-    # Set an EEG reference
-    if "eeg" in cfg.ch_types:
-        if cfg.eeg_reference == "average":
-            set_initial_average_reference(epochs, cfg)
-        else:
-            epochs.set_eeg_reference(cfg.eeg_reference, projection=False)
+    _set_eeg_reference(epochs, cfg=cfg)
 
     assert isinstance(epochs.drop_log, tuple)
     n_epochs_before_metadata_query = len(epochs.drop_log)
@@ -382,7 +377,6 @@ def get_config(
         noise_cov=_sanitize_callable(config.noise_cov),
         eeg_reference=get_eeg_reference(config),
         eeg_online_reference_channel=config.eeg_online_reference_channel,
-        add_online_reference_channel=config.add_online_reference_channel,
         drop_channel_after_rereference=config.drop_channel_after_rereference,
         eeg_template_montage=config.eeg_template_montage,
         processing="eyelink" if config.sync_eyelink else "filt" if config.regress_artifact is None else "regress",
