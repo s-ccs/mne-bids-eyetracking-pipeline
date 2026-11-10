@@ -34,7 +34,7 @@ BIDS_PIPELINE_DIR = Path(__file__).absolute().parents[1]
 
 
 # Where to download the data to
-DATA_DIR = Path("~/mne_data").expanduser()
+DATA_DIR = Path("/scratch/users/li/mne_data").expanduser()
 
 
 # Once PEP655 lands in 3.11 we can use NotRequired instead of total=False
