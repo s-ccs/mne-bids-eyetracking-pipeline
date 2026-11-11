@@ -402,7 +402,11 @@ def get_config(
         eeg_online_reference_channel=config.eeg_online_reference_channel,
         drop_channel_after_rereference=config.drop_channel_after_rereference,
         eeg_template_montage=config.eeg_template_montage,
-        processing="eyelink" if config.sync_eyelink else "filt" if config.regress_artifact is None else "regress",
+        processing="eyelink"
+        if config.sync_eyelink
+        else "filt"
+        if config.regress_artifact is None
+        else "regress",
         _epochs_split_size=config._epochs_split_size,
         **_epochs_kwargs(config=config),
         **_bids_kwargs(config=config),

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import mne
 import pandas as pd
+from pyprep import NoisyChannels
 
 from mne_bids_pipeline._config_utils import (
     _do_mf_autobad,
@@ -27,7 +28,6 @@ from mne_bids_pipeline._report import _add_raw, _get_prefix_tags, _open_report
 from mne_bids_pipeline._run import _prep_out_files, failsafe_run, save_logs
 from mne_bids_pipeline._viz import plot_auto_scores
 from mne_bids_pipeline.typing import FloatArrayT, InFilesT, OutFilesT
-from pyprep import NoisyChannels
 
 
 def get_input_fnames_data_quality(
@@ -156,12 +156,13 @@ def assess_data_quality(
         session=session,
         subject=subject,
     )
-    
-    _write_json(out_files["auto_scores"], auto_scores)  
+
+    _write_json(out_files["auto_scores"], auto_scores)
 
     # find bad channels with pyprep
     if cfg.pyprep_bad_chans:
-        pyprep_bads = _find_bads_pyprep(cfg=cfg,
+        pyprep_bads = _find_bads_pyprep(
+            cfg=cfg,
             exec_params=exec_params,
             raw=raw,
             subject=subject,
@@ -204,10 +205,10 @@ def assess_data_quality(
         for k, v in pyprep_bads.items():
             for ch in v:
                 reason = (
-                f"pre-existing (before MNE-BIDS-pipeline was run) & pyprep {k}"
-                if ch in preexisting_bads
-                else f"pyrep {k}"
-            )
+                    f"pre-existing (before MNE-BIDS-pipeline was run) & pyprep {k}"
+                    if ch in preexisting_bads
+                    else f"pyrep {k}"
+                )
                 bads_for_tsv.append(ch)
                 reasons.append(reason)
 
@@ -282,13 +283,21 @@ def assess_data_quality(
             report.remove(title=title)
             report.add_html(text_html, **text_kwargs)
         if cfg.pyprep_bad_chans:
-            raw.set_annotations(None) # annotations only bother us here
+            raw.set_annotations(None)  # annotations only bother us here
             msg = "Adding pyprep bad channels to report"
             logger.info(**gen_log_kwargs(message=msg))
 
             # Reshape from long to wide format
-            bad_channels_df = pd.pivot_table(tsv_data, columns="reason", index="name", aggfunc=lambda x: True, fill_value=False)
-            color_map = lambda x: 'background-color: #FFB3B3' if x else 'background-color: #B3B3FF' # Colour-code whether a channel was marked as bad by an algorithm
+            bad_channels_df = pd.pivot_table(
+                tsv_data,
+                columns="reason",
+                index="name",
+                aggfunc=lambda x: True,
+                fill_value=False,
+            )
+            color_map = lambda x: (
+                "background-color: #FFB3B3" if x else "background-color: #B3B3FF"
+            )  # Colour-code whether a channel was marked as bad by an algorithm
             styled_df = bad_channels_df.style.map(color_map)
 
             # Convert pandas df to html table and do some formatting
@@ -308,18 +317,18 @@ def assess_data_quality(
             report.add_html(
                 section="Bad channel detection using PyPREP",
                 title="Bad channel detection overview",
-                tags=tags+("bad_channel",),
-                html=styled_html)
+                tags=tags + ("bad_channel",),
+                html=styled_html,
+            )
             raw.info["bads"] = pyprep_bads["bad_all"]
             _add_raw(
                 cfg=cfg,
                 report=report,
                 bids_path_in=bids_path_in,
-                title_prefix=f"Raw, bad_all",
+                title_prefix="Raw, bad_all",
                 tags=("bad_channel",),
                 raw=raw,
             )
-
 
             # for k, v in pyprep_bads.items():
             #     raw.info["bads"] = v
@@ -422,6 +431,7 @@ def _find_bads_maxwell(
         plt.show()
 
     return auto_noisy_chs, auto_flat_chs, auto_scores
+
 
 def _find_bads_pyprep(
     *,

@@ -287,7 +287,11 @@ def get_config(
         runs_tasks=get_runs_tasks(
             config=config, subject=subject, session=session, which=("runs", "rest")
         ),
-        processing="eyelink" if config.sync_eyelink else "filt" if config.regress_artifact is None else "regress",
+        processing="eyelink"
+        if config.sync_eyelink
+        else "filt"
+        if config.regress_artifact is None
+        else "regress",
         **_bids_kwargs(config=config),
     )
     return cfg

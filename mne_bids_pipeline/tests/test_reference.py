@@ -32,7 +32,7 @@ def test_set_eeg_reference(online_ref: str | None, apply: bool) -> None:
     want = eeg - eeg.sum(axis=0) / n_avg
     _set_eeg_reference(raw, cfg=cfg, apply=apply)
     added = online_ref is not None and not (
-    apply and cfg.drop_channel_after_rereference
+        apply and cfg.drop_channel_after_rereference
     )
     assert len(raw.ch_names) == 4 + added
     raw.apply_proj()

@@ -164,7 +164,11 @@ def get_config(
     session: str | None,
 ) -> SimpleNamespace:
     cfg = SimpleNamespace(
-        processing="eyelink" if config.sync_eyelink else "filt" if config.regress_artifact is None else "regress",
+        processing="eyelink"
+        if config.sync_eyelink
+        else "filt"
+        if config.regress_artifact is None
+        else "regress",
         _epochs_split_size=config._epochs_split_size,
         plot_psd_for_runs=config.plot_psd_for_runs,
         _raw_split_size=config._raw_split_size,

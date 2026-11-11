@@ -352,8 +352,6 @@ def find_ica_artifacts(
     ecg_evoked = None if epochs_ecg is None else epochs_ecg.average()
     eog_evoked = None if epochs_eog is None else epochs_eog.average()
 
-    
-
     # Save ECG and EOG evokeds to disk.
     for artifact_name, artifact_evoked in zip(("ecg", "eog"), (ecg_evoked, eog_evoked)):
         if artifact_evoked:
@@ -607,7 +605,11 @@ def get_config(
         eeg_reference=get_eeg_reference(config),
         eeg_online_reference_channel=config.eeg_online_reference_channel,
         eog_channels=config.eog_channels,
-        processing="eyelink" if config.sync_eyelink else "filt" if config.regress_artifact is None else "regress",
+        processing="eyelink"
+        if config.sync_eyelink
+        else "filt"
+        if config.regress_artifact is None
+        else "regress",
         **_bids_kwargs(config=config),
     )
     return cfg

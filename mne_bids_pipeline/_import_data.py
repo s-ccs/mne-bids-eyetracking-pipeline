@@ -485,7 +485,7 @@ def import_experimental_data(
         bads = _read_bads_tsv(cfg=cfg, bids_path_bads=bids_path_bads_in)
         msg = f"Marking {len(bads)} channel{_pl(bads)} as bad."
         logger.info(**gen_log_kwargs(message=msg))
-        raw.info["bads"] = sorted(set(bads)) # Remove duplicates and sort channels
+        raw.info["bads"] = sorted(set(bads))  # Remove duplicates and sort channels
         raw.info._check_consistency()
 
     return raw

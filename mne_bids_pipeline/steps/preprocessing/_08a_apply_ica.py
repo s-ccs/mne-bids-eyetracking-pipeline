@@ -114,6 +114,7 @@ def get_input_fnames_apply_ica_raw(
     in_files.update(_ica_paths(cfg=cfg, subject=subject, session=session))
     return in_files
 
+
 @failsafe_run(
     get_input_fnames=get_input_fnames_apply_ica_epochs,
 )
@@ -145,7 +146,7 @@ def apply_ica_epochs(
     logger.info(**gen_log_kwargs(message=msg))
     msg = f"Output: {out_files['epochs'].basename}"
     logger.info(**gen_log_kwargs(message=msg))
-    
+
     epochs = mne.read_epochs(in_files.pop("epochs").fpath, preload=True)
 
     # Average reference should have already been set in _07_make_epochs.py, therefore we only apply it here
@@ -241,7 +242,7 @@ def apply_ica_raw(
     #     raw.set_eeg_reference("average", projection=True).apply_proj()
     # else:
     #     raw.set_eeg_reference(cfg.eeg_reference)
-    
+
     raw.save(out_files[in_key], overwrite=True, split_size=cfg._raw_split_size)
     _update_for_splits(out_files, in_key)
 
@@ -276,8 +277,12 @@ def get_config(
     cfg = SimpleNamespace(
         baseline=config.baseline,
         ica_reject=config.ica_reject,
-        ica_use_icalabel=config.ica_use_icalabel,     
-        processing="eyelink" if config.sync_eyelink else "filt" if config.regress_artifact is None else "regress",
+        ica_use_icalabel=config.ica_use_icalabel,
+        processing="eyelink"
+        if config.sync_eyelink
+        else "filt"
+        if config.regress_artifact is None
+        else "regress",
         _epochs_split_size=config._epochs_split_size,
         plot_psd_for_runs=config.plot_psd_for_runs,
         _raw_split_size=config._raw_split_size,
