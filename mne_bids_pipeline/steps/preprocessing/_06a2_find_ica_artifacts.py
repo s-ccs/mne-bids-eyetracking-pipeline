@@ -22,13 +22,14 @@ from mne_bids_pipeline._config_utils import (
     _get_ss,
     get_eeg_reference,
     get_eog_channels,
-    get_runs,
+    get_runs_tasks,
 )
 from mne_bids_pipeline._logging import gen_log_kwargs, logger
 from mne_bids_pipeline._parallel import get_parallel_backend, parallel_func
-from mne_bids_pipeline._reference import set_initial_average_reference
+from mne_bids_pipeline._reference import _set_eeg_reference
 from mne_bids_pipeline._report import _open_report
 from mne_bids_pipeline._run import (
+    _ignore_warnings,
     _prep_out_files,
     _update_for_splits,
     failsafe_run,
@@ -42,7 +43,7 @@ def detect_bad_components(
     cfg: SimpleNamespace,
     which: Literal["eog", "ecg"],
     epochs: mne.BaseEpochs | None,
-    ica: mne.preprocessing.ICA,
+    ica: "mne.preprocessing.ICA",
     ch_names: list[str] | None,
     subject: str,
     session: str | None,
@@ -99,7 +100,7 @@ def get_input_fnames_find_ica_artifacts(
     bids_basename = BIDSPath(
         subject=subject,
         session=session,
-        task=cfg.task,
+        task=None,
         acquisition=cfg.acq,
         recording=cfg.rec,
         space=cfg.space,
@@ -111,13 +112,15 @@ def get_input_fnames_find_ica_artifacts(
     in_files = dict()
     in_files["epochs"] = bids_basename.copy().update(processing="icafit", suffix="epo")
     _update_for_splits(in_files, "epochs", single=True)
-    for run in cfg.runs:
-        key = f"raw_run-{run}"
+    for run, task in cfg.runs_tasks:
+        key = f"raw_task-{task}_run-{run}"
         in_files[key] = bids_basename.copy().update(
-            run=run, processing=cfg.processing, suffix="raw"
+            run=run, task=task, processing=cfg.processing, suffix="raw"
         )
         _update_for_splits(in_files, key, single=True)
-    in_files["ica"] = bids_basename.copy().update(processing="icafit", suffix="ica")
+    in_files["ica"] = bids_basename.copy().update(
+        processing="icafit", suffix="ica", task=None
+    )
     return in_files
 
 
@@ -133,8 +136,12 @@ def find_ica_artifacts(
     in_files: InFilesT,
 ) -> OutFilesT:
     """Run ICA."""
-    raw_fnames = [in_files.pop(f"raw_run-{run}") for run in cfg.runs]
-    bids_basename = raw_fnames[0].copy().update(processing=None, split=None, run=None)
+    raw_fnames = [
+        in_files.pop(f"raw_task-{task}_run-{run}") for run, task in cfg.runs_tasks
+    ]
+    bids_basename = (
+        raw_fnames[0].copy().update(processing=None, split=None, run=None, task=None)
+    )
     out_files = dict()
     out_files["ica"] = bids_basename.copy().update(processing="ica", suffix="ica")
     out_files["ecg"] = bids_basename.copy().update(processing="ica+ecg", suffix="ave")
@@ -154,22 +161,16 @@ def find_ica_artifacts(
     ica = mne.preprocessing.read_ica(in_files.pop("ica"))
 
     # Epochs used for ICA fitting
-    epochs = mne.read_epochs(in_files.pop("epochs"), preload=True)
+    epochs = mne.read_epochs(in_files.pop("epochs").fpath, preload=True)
 
     # ECG component detection
     epochs_ecg = None
     ecg_ics: list[int] = []
     ecg_scores: FloatArrayT = np.zeros(0)
     if cfg.ica_use_ecg_detection:
-        for ri, raw_fname in enumerate(raw_fnames):
+        for ri, ((run, task), raw_fname) in enumerate(zip(cfg.runs_tasks, raw_fnames)):
             # Have the channels needed to make ECG epochs
             raw = mne.io.read_raw(raw_fname, preload=False)
-            if cfg.ica_use_icalabel:
-                set_initial_average_reference(raw, cfg).apply_proj()
-                if cfg.drop_channel_after_rereference:
-                    msg = f"Online reference channel {cfg.eeg_online_reference_channel} will be dropped again."
-                    logger.info(**gen_log_kwargs(message=msg))
-                    raw.drop_channels(cfg.eeg_online_reference_channel)
             # ECG epochs
             if not (
                 "ecg" in raw.get_channel_types()
@@ -186,44 +187,46 @@ def find_ica_artifacts(
                 msg = "Creating ECG epochs …"
                 logger.info(**gen_log_kwargs(message=msg))
 
-                # We want to extract a total of 5 min of data for ECG epochs generation
-                # (across all runs)
-                total_ecg_dur = 5 * 60
-                ecg_dur_per_run = total_ecg_dur / len(raw_fnames)
-                t_mid = (raw.times[-1] + raw.times[0]) / 2
-                raw = raw.crop(
-                    tmin=max(t_mid - 1 / 2 * ecg_dur_per_run, 0),
-                    tmax=min(t_mid + 1 / 2 * ecg_dur_per_run, raw.times[-1]),
-                ).load_data()
+            # We want to extract a total of 5 min of data for ECG epochs generation
+            # (across all runs)
+            total_ecg_dur = 5 * 60
+            ecg_dur_per_run = total_ecg_dur / len(raw_fnames)
+            t_mid = (raw.times[-1] + raw.times[0]) / 2
+            raw = raw.crop(
+                tmin=max(t_mid - 1 / 2 * ecg_dur_per_run, 0),
+                tmax=min(t_mid + 1 / 2 * ecg_dur_per_run, raw.times[-1]),
+            ).load_data()
+            _set_eeg_reference(raw, cfg=cfg, apply=cfg.ica_use_icalabel)  # match fit
 
-                these_ecg_epochs = create_ecg_epochs(
-                    raw,
-                    baseline=(None, -0.2),
-                    tmin=-0.5,
-                    tmax=0.5,
-                )
-                del raw  # Free memory
+            these_ecg_epochs = create_ecg_epochs(
+                raw,
+                baseline=(None, -0.2),
+                tmin=-0.5,
+                tmax=0.5,
+            )
+            del raw  # Free memory
+            if len(these_ecg_epochs):
+                if epochs.reject is not None:
+                    these_ecg_epochs.drop_bad(reject=epochs.reject)
                 if len(these_ecg_epochs):
-                    if epochs.reject is not None:
-                        these_ecg_epochs.drop_bad(reject=epochs.reject)
-                    if len(these_ecg_epochs):
-                        if epochs_ecg is None:
-                            epochs_ecg = these_ecg_epochs
-                        else:
-                            epochs_ecg = mne.concatenate_epochs(
-                                [epochs_ecg, these_ecg_epochs], on_mismatch="warn"
-                            )
-                del these_ecg_epochs
-            else:  # did not break so had usable channels
-                ecg_ics, ecg_scores = detect_bad_components(
-                    cfg=cfg,
-                    which="ecg",
-                    epochs=epochs_ecg,
-                    ica=ica,
-                    ch_names=None,  # we currently don't allow for custom channels
-                    subject=subject,
-                    session=session,
-                )
+                    if epochs_ecg is None:
+                        epochs_ecg = these_ecg_epochs
+                    else:
+                        epochs_ecg = mne.concatenate_epochs(
+                            [epochs_ecg, these_ecg_epochs], on_mismatch="warn"
+                        )
+            del these_ecg_epochs
+        else:  # did not break so had usable channels
+            ecg_ics, ecg_scores = detect_bad_components(
+                cfg=cfg,
+                which="ecg",
+                epochs=epochs_ecg,
+                ica=ica,
+                ch_names=None,  # we currently don't allow for custom channels
+                subject=subject,
+                session=session,
+            )
+        del run, task
 
     # EOG component detection
 
@@ -238,14 +241,9 @@ def find_ica_artifacts(
     eog_ics: list[int] = []
     eog_scores: FloatArrayT = np.zeros(0)
     if cfg.ica_use_eog_detection:
-        for ri, raw_fname in enumerate(raw_fnames):
+        for ri, ((run, task), raw_fname) in enumerate(zip(cfg.runs_tasks, raw_fnames)):
             raw = mne.io.read_raw_fif(raw_fname, preload=True)
-            if cfg.ica_use_icalabel:
-                set_initial_average_reference(raw, cfg).apply_proj()
-                if cfg.drop_channel_after_rereference:
-                    msg = f"Online reference channel {cfg.eeg_online_reference_channel} will be dropped again."
-                    logger.info(**gen_log_kwargs(message=msg))
-                    raw.drop_channels(cfg.eeg_online_reference_channel)
+            _set_eeg_reference(raw, cfg=cfg, apply=cfg.ica_use_icalabel)
             if eog_chs_subj_sess is not None:  # explicit None-check to allow []
                 ch_names = eog_chs_subj_sess
                 assert all([ch_name in raw.ch_names for ch_name in ch_names])
@@ -284,6 +282,7 @@ def find_ica_artifacts(
                 subject=subject,
                 session=session,
             )
+        del run, task
 
     # Run MNE-ICALabel if requested.
     exclude: list[int] = ecg_ics + eog_ics
@@ -353,8 +352,6 @@ def find_ica_artifacts(
     ecg_evoked = None if epochs_ecg is None else epochs_ecg.average()
     eog_evoked = None if epochs_eog is None else epochs_eog.average()
 
-    
-
     # Save ECG and EOG evokeds to disk.
     for artifact_name, artifact_evoked in zip(("ecg", "eog"), (ecg_evoked, eog_evoked)):
         if artifact_evoked:
@@ -374,7 +371,6 @@ def find_ica_artifacts(
         exec_params=exec_params,
         subject=subject,
         session=session,
-        task=cfg.task,
     ) as report:
         logger.info(**gen_log_kwargs(message=f'Adding "{title}" to report.'))
         report.add_ica(
@@ -423,7 +419,7 @@ _ICALABEL_CLASSES = [
 def _run_icalabel(
     *,
     cfg: SimpleNamespace,
-    ica: mne.preprocessing.ICA,
+    ica: "mne.preprocessing.ICA",
     epochs: mne.BaseEpochs,
     mne_exclude: list[int],
     subject: str,
@@ -437,9 +433,12 @@ def _run_icalabel(
     msg = "Performing automated artifact detection (MNE-ICALabel) …"
     logger.info(**gen_log_kwargs(message=msg))
 
-    icalabel_class_probabilities = iclabel_label_components(
-        inst=epochs, ica=ica, inplace=False
-    )
+    # full-rank average reference (online ref dropped) isn't zero-mean
+    car_warn = "does not seem to be referenced to a common average"
+    with _ignore_warnings(car_warn if cfg.eeg_online_reference_channel else ()):
+        icalabel_class_probabilities = iclabel_label_components(
+            inst=epochs, ica=ica, inplace=False
+        )
     icalabel_component_labels = [
         _ICALABEL_CLASSES[i] for i in icalabel_class_probabilities.argmax(axis=1)
     ]
@@ -481,7 +480,9 @@ def _run_icalabel(
         f"component{_pl(icalabel_ics)} in {len(epochs)} epochs."
     )
     logger.info(**gen_log_kwargs(message=msg))
-    icalabel_df = pd.DataFrame(icalabel_class_probabilities, columns=_ICALABEL_CLASSES)
+    icalabel_df = pd.DataFrame(
+        icalabel_class_probabilities, columns=np.array(_ICALABEL_CLASSES)
+    )
 
     icalabel_df["Component"] = [
         f"ICA{i:03d}" for i in range(len(icalabel_component_labels))
@@ -497,8 +498,8 @@ def _run_icalabel(
 
 def _add_report_icalabel(
     *,
-    report: mne.Report,
-    ica: mne.preprocessing.ICA,
+    report: "mne.Report",
+    ica: "mne.preprocessing.ICA",
     icalabel_report: list[tuple[str, float, bool]],
     icalabel_df: pd.DataFrame,
     tags: tuple[str, ...],
@@ -587,8 +588,9 @@ def get_config(
     session: str | None = None,
 ) -> SimpleNamespace:
     cfg = SimpleNamespace(
-        runs=get_runs(config=config, subject=subject),
-        task_is_rest=config.task_is_rest,
+        runs_tasks=get_runs_tasks(
+            config=config, subject=subject, session=session, which=("runs", "rest")
+        ),
         ica_use_eog_detection=config.ica_use_eog_detection,
         ica_eog_threshold=config.ica_eog_threshold,
         ica_use_ecg_detection=config.ica_use_ecg_detection,
@@ -598,15 +600,16 @@ def get_config(
         ica_exclusion_thresholds=config.ica_exclusion_thresholds,
         ica_class_thresholds=config.ica_class_thresholds,
         ch_types=config.ch_types,
-        eeg_reference=get_eeg_reference(config),
-        eeg_online_reference_channel=config.eeg_online_reference_channel,
-        add_online_reference_channel=config.add_online_reference_channel,
         drop_channel_after_rereference=config.drop_channel_after_rereference,
         eeg_template_montage=config.eeg_template_montage,
+        eeg_reference=get_eeg_reference(config),
+        eeg_online_reference_channel=config.eeg_online_reference_channel,
         eog_channels=config.eog_channels,
-        rest_epochs_duration=config.rest_epochs_duration,
-        rest_epochs_overlap=config.rest_epochs_overlap,
-        processing="eyelink" if config.sync_eyelink else "filt" if config.regress_artifact is None else "regress",
+        processing="eyelink"
+        if config.sync_eyelink
+        else "filt"
+        if config.regress_artifact is None
+        else "regress",
         **_bids_kwargs(config=config),
     )
     return cfg
@@ -627,7 +630,7 @@ def main(*, config: SimpleNamespace) -> None:
         )
         logs = parallel(
             run_func(
-                cfg=get_config(config=config, subject=subject),
+                cfg=get_config(config=config, subject=subject, session=session),
                 exec_params=config.exec_params,
                 subject=subject,
                 session=session,

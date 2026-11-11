@@ -12,11 +12,16 @@ import pandas as pd
 from mne.preprocessing import read_ica
 from mne_bids import BIDSPath
 
-from mne_bids_pipeline._config_utils import _get_ss, _get_ssrt, _limit_which_clean, get_eeg_reference
-from mne_bids_pipeline._import_data import _get_run_rest_noise_path, _import_data_kwargs
+from mne_bids_pipeline._config_utils import (
+    _get_ssrt,
+    _get_sst,
+    _limit_which_clean,
+    get_eeg_reference,
+)
+from mne_bids_pipeline._import_data import _get_run_rest_noise_path, _raw_path_kwargs
 from mne_bids_pipeline._logging import gen_log_kwargs, logger
 from mne_bids_pipeline._parallel import get_parallel_backend, parallel_func
-from mne_bids_pipeline._reference import set_initial_average_reference
+from mne_bids_pipeline._reference import _set_eeg_reference
 from mne_bids_pipeline._report import _add_raw, _open_report
 from mne_bids_pipeline._run import (
     _prep_out_files,
@@ -36,7 +41,7 @@ def _ica_paths(
     bids_basename = BIDSPath(
         subject=subject,
         session=session,
-        task=cfg.task,
+        task=None,
         acquisition=cfg.acq,
         recording=cfg.rec,
         space=cfg.space,
@@ -70,6 +75,7 @@ def get_input_fnames_apply_ica_epochs(
     cfg: SimpleNamespace,
     subject: str,
     session: str | None,
+    task: str | None,
 ) -> InFilesT:
     in_files = _ica_paths(cfg=cfg, subject=subject, session=session)
     in_files["epochs"] = (
@@ -78,6 +84,7 @@ def get_input_fnames_apply_ica_epochs(
         .update(
             suffix="epo",
             extension=".fif",
+            task=task,
             processing=None,
         )
     )
@@ -101,10 +108,12 @@ def get_input_fnames_apply_ica_raw(
         task=task,
         kind=cfg.processing,
         mf_reference_run=cfg.mf_reference_run,
+        mf_reference_task=cfg.mf_reference_task,
     )
     assert len(in_files)
     in_files.update(_ica_paths(cfg=cfg, subject=subject, session=session))
     return in_files
+
 
 @failsafe_run(
     get_input_fnames=get_input_fnames_apply_ica_epochs,
@@ -115,16 +124,17 @@ def apply_ica_epochs(
     exec_params: SimpleNamespace,
     subject: str,
     session: str | None,
+    task: str | None,
     in_files: InFilesT,
 ) -> OutFilesT:
     out_files = dict()
     out_files["epochs"] = in_files["epochs"].copy().update(processing="ica", split=None)
 
-    title = f"ICA artifact removal – sub-{subject}"
+    title = f"ICA artifact removal - sub-{subject}"
     if session is not None:
         title += f", ses-{session}"
-    if cfg.task is not None:
-        title += f", task-{cfg.task}"
+    if task is not None:
+        title += f", task-{task}"
 
     # Load ICA.
     msg = f"Reading ICA: {in_files['ica']}"
@@ -137,15 +147,11 @@ def apply_ica_epochs(
     msg = f"Output: {out_files['epochs'].basename}"
     logger.info(**gen_log_kwargs(message=msg))
 
-    epochs = mne.read_epochs(in_files.pop("epochs"), preload=True)
+    epochs = mne.read_epochs(in_files.pop("epochs").fpath, preload=True)
 
     # Average reference should have already been set in _07_make_epochs.py, therefore we only apply it here
     if cfg.ica_use_icalabel:
-        epochs.apply_proj()
-        if cfg.drop_channel_after_rereference:
-            msg = f"Online reference channel {cfg.eeg_online_reference_channel} will be dropped again."
-            logger.info(**gen_log_kwargs(message=msg))
-            epochs.drop_channels(cfg.eeg_online_reference_channel)
+        _set_eeg_reference(epochs, cfg=cfg, apply=True)
 
     # Now actually reject the components.
     msg = (
@@ -227,19 +233,7 @@ def apply_ica_raw(
     msg = f"Writing {out_files[in_key].basename} …"
     logger.info(**gen_log_kwargs(message=msg))
     raw = mne.io.read_raw_fif(raw_fname, preload=True)
-
-    if "eeg" in cfg.ch_types:
-        if cfg.eeg_reference == "average":
-            set_initial_average_reference(raw, cfg)
-            if cfg.ica_use_icalabel:
-                raw.apply_proj()
-                if cfg.drop_channel_after_rereference:
-                    msg = f"Online reference channel {cfg.eeg_online_reference_channel} will be dropped again."
-                    logger.info(**gen_log_kwargs(message=msg))
-                    raw.drop_channels(cfg.eeg_online_reference_channel)
-        else:
-            raw.set_eeg_reference(cfg.eeg_reference, projection=False)
-
+    _set_eeg_reference(raw, cfg=cfg, apply=cfg.ica_use_icalabel)  # match epochs
     ica.apply(raw)
 
     # Re-reference data (again) after applying ICA
@@ -248,7 +242,7 @@ def apply_ica_raw(
     #     raw.set_eeg_reference("average", projection=True).apply_proj()
     # else:
     #     raw.set_eeg_reference(cfg.eeg_reference)
-    
+
     raw.save(out_files[in_key], overwrite=True, split_size=cfg._raw_split_size)
     _update_for_splits(out_files, in_key)
 
@@ -267,7 +261,7 @@ def apply_ica_raw(
             cfg=cfg,
             report=report,
             bids_path_in=out_files[in_key],
-            title="Raw (clean)",
+            title_prefix="Raw (clean)",
             tags=("clean",),
             raw=raw,
         )
@@ -278,18 +272,25 @@ def get_config(
     *,
     config: SimpleNamespace,
     subject: str,
+    session: str | None,
 ) -> SimpleNamespace:
     cfg = SimpleNamespace(
         baseline=config.baseline,
         ica_reject=config.ica_reject,
         ica_use_icalabel=config.ica_use_icalabel,
+        processing="eyelink"
+        if config.sync_eyelink
+        else "filt"
+        if config.regress_artifact is None
+        else "regress",
+        _epochs_split_size=config._epochs_split_size,
+        plot_psd_for_runs=config.plot_psd_for_runs,
+        _raw_split_size=config._raw_split_size,
         eeg_reference=get_eeg_reference(config),
         eeg_online_reference_channel=config.eeg_online_reference_channel,
-        add_online_reference_channel=config.add_online_reference_channel,
-        drop_channel_after_rereference=config.drop_channel_after_rereference,      
-        processing="eyelink" if config.sync_eyelink else "filt" if config.regress_artifact is None else "regress",
-        _epochs_split_size=config._epochs_split_size,
-        **_import_data_kwargs(config=config, subject=subject),
+        drop_channel_after_rereference=config.drop_channel_after_rereference,
+        eeg_template_montage=config.eeg_template_montage,
+        **_raw_path_kwargs(config=config, subject=subject, session=session),
     )
     return cfg
 
@@ -300,25 +301,27 @@ def main(*, config: SimpleNamespace) -> None:
         logger.info(**gen_log_kwargs(message="SKIP"))
         return
 
-    ss = _get_ss(config=config)
+    sst = _get_sst(config=config)
     which = _limit_which_clean(config=config)
     ssrt = _get_ssrt(config=config, which=which)
     with get_parallel_backend(config.exec_params):
         # Epochs
         parallel, run_func = parallel_func(
-            apply_ica_epochs, exec_params=config.exec_params, n_iter=len(ss)
+            apply_ica_epochs, exec_params=config.exec_params, n_iter=len(sst)
         )
         logs = parallel(
             run_func(
                 cfg=get_config(
                     config=config,
                     subject=subject,
+                    session=session,
                 ),
                 exec_params=config.exec_params,
                 subject=subject,
                 session=session,
+                task=task,
             )
-            for subject, session in ss
+            for subject, session, task in sst
         )
         # Raw
         parallel, run_func = parallel_func(
@@ -329,6 +332,7 @@ def main(*, config: SimpleNamespace) -> None:
                 cfg=get_config(
                     config=config,
                     subject=subject,
+                    session=session,
                 ),
                 exec_params=config.exec_params,
                 subject=subject,

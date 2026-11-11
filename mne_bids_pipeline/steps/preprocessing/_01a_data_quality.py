@@ -4,17 +4,17 @@ from types import SimpleNamespace
 
 import mne
 import pandas as pd
+from pyprep import NoisyChannels
 
 from mne_bids_pipeline._config_utils import (
     _do_mf_autobad,
     _get_ssrt,
+    _mf_cal_kwargs,
     _pl,
-    get_mf_cal_fname,
-    get_mf_ctc_fname,
 )
 from mne_bids_pipeline._import_data import (
     _bads_path,
-    _get_mf_reference_run_path,
+    _get_mf_reference_path,
     _get_run_rest_noise_path,
     _import_data_kwargs,
     _read_raw_msg,
@@ -24,11 +24,10 @@ from mne_bids_pipeline._import_data import (
 from mne_bids_pipeline._io import _write_json
 from mne_bids_pipeline._logging import gen_log_kwargs, logger
 from mne_bids_pipeline._parallel import get_parallel_backend, parallel_func
-from mne_bids_pipeline._report import _add_raw, _open_report
+from mne_bids_pipeline._report import _add_raw, _get_prefix_tags, _open_report
 from mne_bids_pipeline._run import _prep_out_files, failsafe_run, save_logs
 from mne_bids_pipeline._viz import plot_auto_scores
 from mne_bids_pipeline.typing import FloatArrayT, InFilesT, OutFilesT
-from pyprep import NoisyChannels
 
 
 def get_input_fnames_data_quality(
@@ -45,24 +44,24 @@ def get_input_fnames_data_quality(
         task=task,
         kind="orig",
         mf_reference_run=cfg.mf_reference_run,
+        mf_reference_task=cfg.mf_reference_task,
         cfg=cfg,
         subject=subject,
         session=session,
-        add_bads=False,
     )
     # When doing autobad for the noise run, we also need the reference run
     if _do_mf_autobad(cfg=cfg) and run is None and task == "noise":
         in_files.update(
-            _get_mf_reference_run_path(
+            _get_mf_reference_path(
                 cfg=cfg,
                 subject=subject,
                 session=session,
-                add_bads=False,
             )
         )
 
     # set calibration and crosstalk files (if provided)
     if _do_mf_autobad(cfg=cfg):
+        # add these explicitly to in_files (duplicating with cfg) for proper caching
         if cfg.mf_cal_fname is not None:
             in_files["mf_cal_fname"] = cfg.mf_cal_fname
         if cfg.mf_ctc_fname is not None:
@@ -73,6 +72,7 @@ def get_input_fnames_data_quality(
 
 @failsafe_run(
     get_input_fnames=get_input_fnames_data_quality,
+    sidecars=True,
 )
 def assess_data_quality(
     *,
@@ -100,6 +100,7 @@ def assess_data_quality(
     if run is None and task == "noise":
         raw = import_er_data(
             cfg=cfg,
+            exec_params=exec_params,
             bids_path_er_in=bids_path_in,
             bids_path_er_bads_in=None,
             bids_path_ref_in=bids_path_ref_in,
@@ -109,9 +110,10 @@ def assess_data_quality(
     else:
         data_is_rest = run is None and task == "rest"
         raw = import_experimental_data(
+            cfg=cfg,
+            exec_params=exec_params,
             bids_path_in=bids_path_in,
             bids_path_bads_in=None,
-            cfg=cfg,
             data_is_rest=data_is_rest,
         )
     preexisting_bads = sorted(raw.info["bads"])
@@ -121,8 +123,8 @@ def assess_data_quality(
     auto_flat_chs: list[str] = []
     if _do_mf_autobad(cfg=cfg):
         # use calibration and crosstalk files (if provided)
-        cfg.mf_cal_fname = in_files.pop("mf_cal_fname", None)
-        cfg.mf_ctc_fname = in_files.pop("mf_ctc_fname", None)
+        in_files.pop("mf_cal_fname", None)
+        in_files.pop("mf_ctc_fname", None)
 
         (
             auto_noisy_chs,
@@ -154,12 +156,13 @@ def assess_data_quality(
         session=session,
         subject=subject,
     )
-    
-    _write_json(out_files["auto_scores"], auto_scores)  
+
+    _write_json(out_files["auto_scores"], auto_scores)
 
     # find bad channels with pyprep
     if cfg.pyprep_bad_chans:
-        pyprep_bads = _find_bads_pyprep(cfg=cfg,
+        pyprep_bads = _find_bads_pyprep(
+            cfg=cfg,
             exec_params=exec_params,
             raw=raw,
             subject=subject,
@@ -202,10 +205,10 @@ def assess_data_quality(
         for k, v in pyprep_bads.items():
             for ch in v:
                 reason = (
-                f"pre-existing (before MNE-BIDS-pipeline was run) & pyprep {k}"
-                if ch in preexisting_bads
-                else f"pyrep {k}"
-            )
+                    f"pre-existing (before MNE-BIDS-pipeline was run) & pyprep {k}"
+                    if ch in preexisting_bads
+                    else f"pyrep {k}"
+                )
                 bads_for_tsv.append(ch)
                 reasons.append(reason)
 
@@ -236,27 +239,19 @@ def assess_data_quality(
         kind = "original" if not cfg.proc else cfg.proc
         msg = f"Adding {kind} raw data to report"
         logger.info(**gen_log_kwargs(message=msg))
-        _add_raw(
-            cfg=cfg,
-            report=report,
-            bids_path_in=bids_path_in,
-            raw=raw,
-            title=f"Raw ({kind})",
-            tags=("data-quality",),
-        )
-
-        tags = ("raw", "data-quality", f"run-{run}")
+        prefix, extra_tags = _get_prefix_tags(cfg=cfg, task=task, run=run)
+        tags = ("raw", "data-quality") + extra_tags
         text_html = (
             '<p class="mb-0">Bad channels marked in original data:</p>\n'
             f"{_chs_html(preexisting_bads)}"
         )
         text_kwargs = dict(
-            title=f"Bad channels: {run}",
+            title=f"Bad channels{prefix}",
             section="Data quality",
             tags=tags,
             replace=True,
         )
-        title = f"Bad channel detection: {run}"
+        title = f"Bad channel detection{prefix}"
         if cfg.find_noisy_channels_meg:
             assert auto_scores is not None
             msg = "Adding noisy channel detection to report"
@@ -288,13 +283,21 @@ def assess_data_quality(
             report.remove(title=title)
             report.add_html(text_html, **text_kwargs)
         if cfg.pyprep_bad_chans:
-            raw.set_annotations(None) # annotations only bother us here
+            raw.set_annotations(None)  # annotations only bother us here
             msg = "Adding pyprep bad channels to report"
             logger.info(**gen_log_kwargs(message=msg))
 
             # Reshape from long to wide format
-            bad_channels_df = pd.pivot_table(tsv_data, columns="reason", index="name", aggfunc=lambda x: True, fill_value=False)
-            color_map = lambda x: 'background-color: #FFB3B3' if x else 'background-color: #B3B3FF' # Colour-code whether a channel was marked as bad by an algorithm
+            bad_channels_df = pd.pivot_table(
+                tsv_data,
+                columns="reason",
+                index="name",
+                aggfunc=lambda x: True,
+                fill_value=False,
+            )
+            color_map = lambda x: (
+                "background-color: #FFB3B3" if x else "background-color: #B3B3FF"
+            )  # Colour-code whether a channel was marked as bad by an algorithm
             styled_df = bad_channels_df.style.map(color_map)
 
             # Convert pandas df to html table and do some formatting
@@ -314,18 +317,18 @@ def assess_data_quality(
             report.add_html(
                 section="Bad channel detection using PyPREP",
                 title="Bad channel detection overview",
-                tags=tags+("bad_channel",),
-                html=styled_html)
+                tags=tags + ("bad_channel",),
+                html=styled_html,
+            )
             raw.info["bads"] = pyprep_bads["bad_all"]
             _add_raw(
                 cfg=cfg,
                 report=report,
                 bids_path_in=bids_path_in,
-                title=f"Raw, bad_all",
+                title_prefix="Raw, bad_all",
                 tags=("bad_channel",),
                 raw=raw,
             )
-
 
             # for k, v in pyprep_bads.items():
             #     raw.info["bads"] = v
@@ -339,6 +342,17 @@ def assess_data_quality(
             #         tags=("bad_channel",),
             #         raw=raw,
             #     )
+
+        # Since "Data quality" has its own section, it should be added first, then
+        # each raw will create its own new section due to how _add_raw works
+        _add_raw(
+            cfg=cfg,
+            report=report,
+            bids_path_in=bids_path_in,
+            raw=raw,
+            title_prefix=f"Raw ({kind})",
+            tags=("data-quality",),
+        )
 
     assert len(in_files) == 0, in_files.keys()
     return _prep_out_files(exec_params=exec_params, out_files=out_files)
@@ -418,6 +432,7 @@ def _find_bads_maxwell(
 
     return auto_noisy_chs, auto_flat_chs, auto_scores
 
+
 def _find_bads_pyprep(
     *,
     cfg: SimpleNamespace,
@@ -427,7 +442,7 @@ def _find_bads_pyprep(
     session: str | None,
     run: str | None,
     task: str | None,
-) -> tuple[list[str], list[str], dict[str, FloatArrayT]]:
+) -> dict[str, list[str]]:
     msg = "Finding noisy channels with PyPREP."
     logger.info(**gen_log_kwargs(message=msg))
     noisy_chans = NoisyChannels(raw)
@@ -455,7 +470,7 @@ def _find_bads_pyprep(
         if cfg.pyprep_by_nan_flat:
             msg = "Running pyprep nanflat"
             logger.info(**gen_log_kwargs(message=msg))
-            noisy_chans.find_bad_by_nanflat(**cfg.pyprep_by_nanflat_params)
+            noisy_chans.find_bad_by_nan_flat(**cfg.pyprep_by_nan_flat_params)
         if cfg.pyprep_by_ransac:
             msg = "Running pyprep ransac"
             logger.info(**gen_log_kwargs(message=msg))
@@ -471,25 +486,17 @@ def get_config(
     subject: str,
     session: str | None,
 ) -> SimpleNamespace:
+    # only needed when we actually run automatic bad-channel detection
+    # If these change, need to update hooks.py in doc build
     extra_kwargs = dict()
     if config.find_noisy_channels_meg or config.find_flat_channels_meg:
-        # If these change, need to update hooks.py in doc build
-        extra_kwargs["mf_cal_fname"] = get_mf_cal_fname(
-            config=config,
-            subject=subject,
-            session=session,
-        )
-        extra_kwargs["mf_ctc_fname"] = get_mf_ctc_fname(
-            config=config,
-            subject=subject,
-            session=session,
-        )
-        extra_kwargs["mf_head_origin"] = config.mf_head_origin
+        extra_kwargs = _mf_cal_kwargs(config=config, subject=subject, session=session)
     cfg = SimpleNamespace(
         # These are included in _import_data_kwargs for automatic add_bads
         # detection
         # find_flat_channels_meg=config.find_flat_channels_meg,
         # find_noisy_channels_meg=config.find_noisy_channels_meg,
+        pyprep_bad_chans=config.pyprep_bad_chans,
         pyprep_all_bads=config.pyprep_all_bads,
         pyprep_all_bads_params=config.pyprep_all_bads_params,
         pyprep_by_SNR=config.pyprep_by_SNR,
@@ -504,7 +511,12 @@ def get_config(
         pyprep_by_ransac=config.pyprep_by_ransac,
         pyprep_by_ransac_params=config.pyprep_by_ransac_params,
         # find_bad_channels_extra_kws=config.find_bad_channels_extra_kws,
-        **_import_data_kwargs(config=config, subject=subject),
+        # automatic add_bads detection; this is the only step that does it
+        find_flat_channels_meg=config.find_flat_channels_meg,
+        find_noisy_channels_meg=config.find_noisy_channels_meg,
+        find_bad_channels_extra_kws=config.find_bad_channels_extra_kws,
+        plot_psd_for_runs=config.plot_psd_for_runs,
+        **_import_data_kwargs(config=config, subject=subject, session=session),
         **extra_kwargs,
     )
     return cfg
