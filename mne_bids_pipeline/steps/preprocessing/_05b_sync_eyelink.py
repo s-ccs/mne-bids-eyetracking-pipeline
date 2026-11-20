@@ -71,6 +71,39 @@ def _mark_calibration_as_bad(raw, cfg):
     return raw
 
 
+def _match_sync_events(et_times, eeg_times):
+    """Pair sync events by time; drop events missing in the other recording.
+
+    Assumes the first event of both lists belongs together. The offset is
+    updated after each matched pair, so slow clock drift is followed.
+    """
+    et_times, eeg_times = np.asarray(et_times), np.asarray(eeg_times)
+    swap = len(et_times) < len(eeg_times)
+    short, long = (et_times, eeg_times) if swap else (eeg_times, et_times)
+    tol = 0.5 * np.min(np.diff(long))
+    offset = long[0] - short[0]
+    idx = []
+    for t in short:
+        i = int(np.argmin(np.abs(long - (t + offset))))
+        assert abs(long[i] - (t + offset)) < tol, (
+            f"Could not match sync event at {t:.3f} s; "
+            "are the first events of both recordings the same?"
+        )
+        idx.append(i)
+        offset = long[i] - t
+    assert len(set(idx)) == len(idx), "Sync event matched twice."
+    long = long[idx]
+    logger.warning(
+        **gen_log_kwargs(
+            message=f"Unequal number of sync events; dropped "
+            f"{abs(len(et_times) - len(eeg_times))} unmatched event(s) from the "
+            f"{'EEG' if swap else 'eye-tracking'} recording."
+        )
+    )
+    et_out, eeg_out = (short, long) if swap else (long, short)
+    return list(et_out), list(eeg_out)
+
+
 def get_input_fnames_sync_eyelink(
     *,
     cfg: SimpleNamespace,
@@ -121,7 +154,7 @@ def get_input_fnames_sync_eyelink(
     if cfg.et_has_run:
         et_bids_basename.update(run=run)
 
-    # _update_for_splits(in_files, key, single=True) # TODO: Find out if we need to add this or not
+    _update_for_splits(in_files, key, single=True) # TODO: Find out if we need to add this or not
 
     if not os.path.isfile(et_bids_basename):
         logger.info(
@@ -249,6 +282,11 @@ def sync_eyelink(
         for annotation in raw.annotations
         if re.search(cfg.sync_eventtype_regex, annotation["description"])
     ]
+    if len(et_sync_times) != len(sync_times):
+        # One recording lost sync events (e.g. the EEG recorder crashed and the
+        # gap was filled with NaNs). Keep only events present in both,
+        # pairing them by time.
+        et_sync_times, sync_times = _match_sync_events(et_sync_times, sync_times)
     assert len(et_sync_times) == len(sync_times), (
         f"Detected eyetracking and EEG sync events were not of equal size ({len(et_sync_times)} vs {len(sync_times)}). Adjust your regular expressions via 'sync_eventtype_regex_et' and 'sync_eventtype_regex' accordingly"
     )
@@ -461,9 +499,7 @@ def sync_eyelink(
     ]
 
     if len(raw_onsets) != len(et_onsets):
-        raise ValueError(
-            f"Lengths of raw {len(raw_onsets)} and ET {len(et_onsets)} onsets do not match."
-        )
+        et_onsets, raw_onsets = _match_sync_events(et_onsets, raw_onsets)
     # regress and plot
     coef = np.polyfit(raw_onsets, et_onsets, 1)
     preds = np.poly1d(coef)(raw_onsets)
