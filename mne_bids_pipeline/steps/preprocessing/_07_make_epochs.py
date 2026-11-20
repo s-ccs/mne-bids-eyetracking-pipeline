@@ -288,11 +288,14 @@ def run_epochs(
 
         # handle NANs for plotting
         import numpy as np
+
         epochs.drop_bad(
-            reject={"eeg": lambda x: (
-                np.isnan(x).any(),  # This returns a single boolean
-                "NaN detected in EEG data",
-            )}
+            reject={
+                "eeg": lambda x: (
+                    np.isnan(x).any(),  # This returns a single boolean
+                    "NaN detected in EEG data",
+                )
+            }
         )
         with _ignore_warnings(r"Disabling spatial colors\."):
             report.add_epochs(
