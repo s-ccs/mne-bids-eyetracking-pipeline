@@ -9,14 +9,16 @@ from types import SimpleNamespace
 import mne
 
 from mne_bids_pipeline._config_utils import (
-    _get_ss,
     _get_ssrt,
+    _get_sst,
     _limit_which_clean,
     _proj_path,
+    get_eeg_reference,
 )
-from mne_bids_pipeline._import_data import _get_run_rest_noise_path, _import_data_kwargs
+from mne_bids_pipeline._import_data import _get_run_rest_noise_path, _raw_path_kwargs
 from mne_bids_pipeline._logging import gen_log_kwargs, logger
 from mne_bids_pipeline._parallel import get_parallel_backend, parallel_func
+from mne_bids_pipeline._reference import _set_eeg_reference
 from mne_bids_pipeline._report import _add_raw, _open_report
 from mne_bids_pipeline._run import (
     _prep_out_files,
@@ -32,10 +34,13 @@ def get_input_fnames_apply_ssp_epochs(
     cfg: SimpleNamespace,
     subject: str,
     session: str | None,
+    task: str | None,
 ) -> InFilesT:
     in_files = dict()
     in_files["proj"] = _proj_path(cfg=cfg, subject=subject, session=session)
-    in_files["epochs"] = in_files["proj"].copy().update(suffix="epo", check=False)
+    in_files["epochs"] = (
+        in_files["proj"].copy().update(suffix="epo", check=False, task=task)
+    )
     _update_for_splits(in_files, "epochs", single=True)
     return in_files
 
@@ -49,6 +54,7 @@ def apply_ssp_epochs(
     exec_params: SimpleNamespace,
     subject: str,
     session: str | None,
+    task: str | None,
     in_files: InFilesT,
 ) -> OutFilesT:
     out_files = dict()
@@ -61,7 +67,7 @@ def apply_ssp_epochs(
     logger.info(**gen_log_kwargs(message=msg))
     msg = f"Output:       {out_files['epochs'].basename}"
     logger.info(**gen_log_kwargs(message=msg))
-    epochs = mne.read_epochs(in_files.pop("epochs"), preload=True)
+    epochs = mne.read_epochs(in_files.pop("epochs").fpath, preload=True)
     projs = mne.read_proj(in_files.pop("proj"))
     epochs_cleaned = epochs.copy().add_proj(projs).apply_proj()
 
@@ -93,8 +99,9 @@ def get_input_fnames_apply_ssp_raw(
         session=session,
         run=run,
         task=task,
-        kind="filt",
+        kind=cfg.processing,
         mf_reference_run=cfg.mf_reference_run,
+        mf_reference_task=cfg.mf_reference_task,
     )
     assert len(in_files)
     in_files["proj"] = _proj_path(cfg=cfg, subject=subject, session=session)
@@ -119,7 +126,8 @@ def apply_ssp_raw(
     assert in_key.startswith("raw"), in_key
     raw_fname = in_files.pop(in_key)
     assert len(in_files) == 0, in_files.keys()
-    raw = mne.io.read_raw_fif(raw_fname)
+    raw = mne.io.read_raw_fif(raw_fname, preload="eeg" in cfg.ch_types)
+    _set_eeg_reference(raw, cfg=cfg)  # match epochs
     raw.add_proj(projs)
     out_files = dict()
     out_files[in_key] = raw_fname.copy().update(processing="clean", split=None)
@@ -142,7 +150,7 @@ def apply_ssp_raw(
             cfg=cfg,
             report=report,
             bids_path_in=out_files[in_key],
-            title="Raw (clean)",
+            title_prefix="Raw (clean)",
             tags=("clean",),
             raw=raw,
         )
@@ -153,11 +161,22 @@ def get_config(
     *,
     config: SimpleNamespace,
     subject: str,
+    session: str | None,
 ) -> SimpleNamespace:
     cfg = SimpleNamespace(
-        processing="eyelink" if config.sync_eyelink else "filt" if config.regress_artifact is None else "regress",
+        processing="eyelink"
+        if config.sync_eyelink
+        else "filt"
+        if config.regress_artifact is None
+        else "regress",
         _epochs_split_size=config._epochs_split_size,
-        **_import_data_kwargs(config=config, subject=subject),
+        plot_psd_for_runs=config.plot_psd_for_runs,
+        _raw_split_size=config._raw_split_size,
+        eeg_reference=get_eeg_reference(config),
+        eeg_online_reference_channel=config.eeg_online_reference_channel,
+        drop_channel_after_rereference=config.drop_channel_after_rereference,
+        eeg_template_montage=config.eeg_template_montage,
+        **_raw_path_kwargs(config=config, subject=subject, session=session),
     )
     return cfg
 
@@ -168,25 +187,27 @@ def main(*, config: SimpleNamespace) -> None:
         logger.info(**gen_log_kwargs(message="SKIP"))
         return
 
-    ss = _get_ss(config=config)
+    sst = _get_sst(config=config)
     which = _limit_which_clean(config=config)
     ssrt = _get_ssrt(config=config, which=which)
     with get_parallel_backend(config.exec_params):
         # Epochs
         parallel, run_func = parallel_func(
-            apply_ssp_epochs, exec_params=config.exec_params, n_iter=len(ss)
+            apply_ssp_epochs, exec_params=config.exec_params, n_iter=len(sst)
         )
         logs = parallel(
             run_func(
                 cfg=get_config(
                     config=config,
                     subject=subject,
+                    session=session,
                 ),
                 exec_params=config.exec_params,
                 subject=subject,
                 session=session,
+                task=task,
             )
-            for subject, session in ss
+            for subject, session, task in sst
         )
         # Raw
         parallel, run_func = parallel_func(
@@ -197,6 +218,7 @@ def main(*, config: SimpleNamespace) -> None:
                 cfg=get_config(
                     config=config,
                     subject=subject,
+                    session=session,
                 ),
                 exec_params=config.exec_params,
                 subject=subject,
