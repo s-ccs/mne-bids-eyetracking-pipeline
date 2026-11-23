@@ -1135,6 +1135,14 @@ For full documatation of the bandpass filter:
 https://mne.tools/stable/generated/mne.filter.filter_data
 """
 
+ica_filter_extra_kws: dict[str, Any] = {}
+"""
+A dictionary of extra kwargs to pass to `mne.filter.filter` for the ICA. If kwargs
+are passed here that have dedicated config settings already, an error will be raised.
+For full documentation of the ICA filter:
+https://mne.tools/stable/generated/mne.filter.filter_data
+"""
+
 # ### Resampling
 #
 # If you have acquired data with a very high sampling frequency (e.g. 2 kHz)
@@ -1886,6 +1894,19 @@ The decimation parameter to compute ICA. If 5 it means
 that 1 every 5 sample is used by ICA solver. The higher the faster
 it is to run but the less data you have to compute a good ICA. Set to
 `1` or `None` to not perform any decimation.
+"""
+
+ica_skip_nan: bool = True
+"""
+Annotate all NaNs as `BAD_NAN` (via `mne.preprocessing.annotate_nan`) and exclude
+them from the ICA fit. The ICA filter then also skips these segments (`BAD_NAN`
+is added to `skip_by_annotation` in `ica_filter_extra_kws`), so NaNs don't spread
+into neighbouring epochs. This can cause small filter edge artefacts at the NaN
+boundaries.
+
+NaNs are only annotated at this step. Earlier filters (`bandpass_extra_kws`,
+`notch_extra_kws`) still spread them by up to half a filter length, unless the
+NaNs are annotated before that.
 """
 
 ica_use_ecg_detection: bool = True

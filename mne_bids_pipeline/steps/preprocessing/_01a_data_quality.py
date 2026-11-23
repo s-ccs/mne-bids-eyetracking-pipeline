@@ -136,7 +136,7 @@ def assess_data_quality(
                 subject=subject,
                 session=session,
                 run=run,
-                task=cfg.task,
+                task=task,
             ) as report:
                 caption = "Visualization of break annotations."
                 report.add_figure(
@@ -478,8 +478,28 @@ def _find_bads_pyprep(
 ) -> dict[str, list[str]]:
     msg = "Finding noisy channels with PyPREP."
     logger.info(**gen_log_kwargs(message=msg))
+    if cfg.pyprep_reject_by_annotation == "omit":
+        # PyPREP (<= 0.10) detrends (1 Hz high-pass) the full recording before
+        # applying reject_by_annotation, so NaNs inside BAD segments (e.g.
+        # BAD_NAN) spread over the whole channel and every channel ends up
+        # bad-by-NaN. Do the same high-pass ourselves, filtering only the
+        # segments between BAD annotations ("bad" = what "omit" drops; "edge"
+        # = MNE's default split at concatenation boundaries), and skip
+        # PyPREP's own detrend.
+        raw_prep = raw.copy().filter(
+            l_freq=1.0,
+            h_freq=None,
+            picks="eeg",
+            skip_by_annotation=("edge", "bad"),
+        )
+        do_detrend = False
+    else:
+        raw_prep, do_detrend = raw, True
+
     noisy_chans = NoisyChannels(
-        raw, reject_by_annotation=cfg.pyprep_reject_by_annotation
+        raw_prep,
+        reject_by_annotation=cfg.pyprep_reject_by_annotation,
+        do_detrend=do_detrend,
     )
     if cfg.pyprep_reject_by_annotation == "omit":
         msg = "Excluding data segments with bad-annotations e.g. BAD_break for bad channel detection."
