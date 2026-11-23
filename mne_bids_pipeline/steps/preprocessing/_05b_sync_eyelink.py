@@ -154,7 +154,9 @@ def get_input_fnames_sync_eyelink(
     if cfg.et_has_run:
         et_bids_basename.update(run=run)
 
-    _update_for_splits(in_files, key, single=True) # TODO: Find out if we need to add this or not
+    _update_for_splits(
+        in_files, key, single=True
+    )  # TODO: Find out if we need to add this or not
 
     if not os.path.isfile(et_bids_basename):
         logger.info(
