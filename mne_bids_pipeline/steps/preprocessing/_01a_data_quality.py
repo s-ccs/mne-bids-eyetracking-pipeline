@@ -136,7 +136,7 @@ def assess_data_quality(
                 subject=subject,
                 session=session,
                 run=run,
-                task=cfg.task,
+                task=task,
             ) as report:
                 caption = "Visualization of break annotations."
                 report.add_figure(

@@ -169,7 +169,7 @@ def run_ica(
                 subject=subject,
                 session=session,
                 run=run,
-                task=cfg.task,
+                task=task,
             ) as report:
                 caption = "Visualization of BAD_NAN annotations (in blue) that were automatically added to the raw data before ICA fitting. These segments contained NaN values and were ignored for ICA fitting. Other annotations are shown as green dots."
                 report.add_figure(
@@ -220,6 +220,12 @@ def run_ica(
 
         if cfg.ica_l_freq is not None or h_freq is not None:
             extra_kws = dict(cfg.ica_filter_extra_kws or {})
+            if cfg.ica_skip_nan:
+                # filter segments between NaNs separately, so NaNs don't spread
+                # into the epochs next to the BAD_NAN annotations
+                skip = extra_kws.get("skip_by_annotation", ("edge", "bad_acq_skip"))
+                skip = [skip] if isinstance(skip, str) else list(skip)
+                extra_kws["skip_by_annotation"] = skip + ["BAD_NAN"]
             raw.filter(l_freq=cfg.ica_l_freq, h_freq=h_freq, n_jobs=1, **extra_kws)
 
         # Only keep the subset of the mapping that applies to the current run
